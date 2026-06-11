@@ -2,19 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audiogram Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- Primary Meta Tags -->
+    <title>Audiogram Pro — Create podcast videos in your browser</title>
+    <meta name="title" content="Audiogram Pro — Create podcast videos in your browser" />
+    <meta name="description" content="Turn any audio clip into a stunning shareable video. 100% in your browser." />
+
+    <!-- Open Graph / Facebook / WhatsApp / LinkedIn -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://f-o-r-g-e-open-source-philanthropy.github.io/audiogram/" />
+    <meta property="og:title" content="Audiogram Pro — Create podcast videos in your browser" />
+    <meta property="og:description" content="Turn any audio clip into a stunning shareable video. 100% in your browser." />
+    <meta property="og:image" content="https://rss-proxy.lovable.app/og-audiogram-pro.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Official Inline App Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='2'></circle><path d='M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14'></path></svg>" />
 
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #09090b; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; border: 1px solid #18181b; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #09090b; touch-action: none; }
+        
+        /* Global Premium Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; border: 1px solid #18181b; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+        ::-webkit-scrollbar-corner { background: transparent; }
+
         .bg-checkerboard { 
             background-image: linear-gradient(45deg, rgba(255,255,255,0.02) 25%, transparent 25%), 
                               linear-gradient(-45deg, rgba(255,255,255,0.02) 25%, transparent 25%), 
@@ -24,6 +43,10 @@
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px; 
         }
         .ui-dot-grid { background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 24px 24px; }
+        
+        /* Animation for Toasts */
+        @keyframes slideIn { from { transform: translate(-50%, -100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+        .toast-enter { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     </style>
 </head>
 <body>
@@ -37,11 +60,87 @@
             Settings, Search, Plus, Trash2, Maximize, RefreshCw, Radio, 
             Layers, LayoutTemplate, Link as LinkIcon, Move, ZoomIn,
             X, Music, Menu, GripVertical, ChevronUp, ChevronDown, Monitor, Smartphone, Square,
-            ChevronRight, Sparkles, Clock, ListMusic, ChevronLeft, FileText
+            ChevronRight, Sparkles, Clock, ListMusic, ChevronLeft, FileText, Key, Save, DownloadCloud, Scissors, Info, AlertTriangle, Lock, Unlock, Puzzle, Plug
         } from 'https://esm.sh/lucide-react@0.292.0';
 
+        const TOOL_VERSION = "0.9.2";
+
+        // --- GLOBAL HOT-SWAP EXTENSION API ---
+        if (!window.AudiogramAPI) {
+            window.AudiogramAPI = {
+                waveforms: {},
+                tools: {},
+                _exts: {},
+                register: (id, init, teardown) => {
+                    window.AudiogramAPI._exts[id] = teardown;
+                    if(init) init(window.AudiogramAPI);
+                    window.dispatchEvent(new Event('audiogram:ext:update'));
+                },
+                unregister: (id) => {
+                    if(window.AudiogramAPI._exts[id]) window.AudiogramAPI._exts[id](window.AudiogramAPI);
+                    delete window.AudiogramAPI._exts[id];
+                    window.dispatchEvent(new Event('audiogram:ext:update'));
+                },
+                addWaveform: (name, drawFn) => {
+                    window.AudiogramAPI.waveforms[name] = drawFn;
+                    window.dispatchEvent(new Event('audiogram:ext:update'));
+                },
+                removeWaveform: (name) => {
+                    delete window.AudiogramAPI.waveforms[name];
+                    window.dispatchEvent(new Event('audiogram:ext:update'));
+                }
+            };
+        }
+
+        // Parse Extension Metadata formatting
+        const parseExtension = (code) => {
+            const nameMatch = code.match(/@name\s+(.*)/);
+            const descMatch = code.match(/@description\s+(.*)/);
+            const devMatch = code.match(/@developer\s+(.*)/);
+            const verMatch = code.match(/@version\s+(.*)/);
+
+            if (!nameMatch) throw new Error("Invalid Extension format: missing @name");
+            
+            return {
+                id: nameMatch[1].trim().replace(/\s+/g, '_').toLowerCase(),
+                name: nameMatch[1].trim(),
+                description: descMatch ? descMatch[1].trim() : 'No description provided.',
+                developer: devMatch ? devMatch[1].trim() : 'Unknown Developer',
+                version: verMatch ? verMatch[1].trim() : '1.0.0',
+                code: code
+            };
+        };
+
+        // --- MEDIA PROXY (Images only, Audio goes direct) ---
         const PROXY_URL = 'https://api.allorigins.win/raw?url=';
-        const CORS_PROXY = (url) => `${PROXY_URL}${encodeURIComponent(url)}`;
+        const CORS_MEDIA_PROXY = (url) => `${PROXY_URL}${encodeURIComponent(url)}`;
+
+        // --- RSS PROXY API (Lovable Endpoint) ---
+        const PROXY_BASE = "https://rss-proxy.lovable.app/api/public/fetch-rss";
+
+        const fetchPodcastFeed = async (feedUrl, licenseKey) => {
+            const url = new URL(PROXY_BASE);
+            url.searchParams.set("url", feedUrl);
+            if (licenseKey) url.searchParams.set("key", licenseKey);
+
+            const res = await fetch(url.toString());
+
+            if (res.status === 402) {
+                const data = await res.json();
+                throw { code: "LIMIT_REACHED", message: data.message || "Free tier exhausted" };
+            }
+
+            if (res.status === 401) {
+                const data = await res.json();
+                throw new Error(data.message || "Invalid license key");
+            }
+
+            if (!res.ok) {
+                throw new Error(`RSS Proxy error: HTTP ${res.status}`);
+            }
+
+            return await res.text();
+        };
 
         const POPULAR_FONTS = [
             'Inter', 'Roboto', 'Oswald', 'Montserrat', 'Bebas Neue', 
@@ -77,128 +176,225 @@
             ctx.closePath();
         };
 
+        // Highly Precise Text Wrapper for Perfect AABB Centering
         const wrapText = (ctx, text, x, y, maxWidth, lineHeight, align) => {
             const words = text.split(' ');
+            const lines = [];
             let line = '';
-            let currentY = y;
-            let totalHeight = lineHeight;
-            
             for (let n = 0; n < words.length; n++) {
                 const testLine = line + words[n] + ' ';
                 const metrics = ctx.measureText(testLine);
-                const testWidth = metrics.width;
-                
-                if (testWidth > maxWidth && n > 0) {
-                    if (align === 'center') ctx.fillText(line, x + maxWidth/2, currentY);
-                    else if (align === 'right') ctx.fillText(line, x + maxWidth, currentY);
-                    else ctx.fillText(line, x, currentY);
-                    
+                if (metrics.width > maxWidth && n > 0) {
+                    lines.push(line.trim());
                     line = words[n] + ' ';
-                    currentY += lineHeight;
-                    totalHeight += lineHeight;
                 } else {
                     line = testLine;
                 }
             }
-            if (align === 'center') ctx.fillText(line, x + maxWidth/2, currentY);
-            else if (align === 'right') ctx.fillText(line, x + maxWidth, currentY);
-            else ctx.fillText(line, x, currentY);
+            lines.push(line.trim());
+
+            const totalHeight = lines.length * lineHeight;
+            let currentY = y; 
+
+            ctx.textAlign = align;
+            ctx.textBaseline = 'top';
             
-            return totalHeight;
+            let drawX = x;
+            if (align === 'center') drawX = x + (maxWidth / 2);
+            if (align === 'right') drawX = x + maxWidth;
+
+            lines.forEach(l => {
+                ctx.fillText(l, drawX, currentY);
+                currentY += lineHeight;
+            });
+
+            return totalHeight; 
         };
 
-        const useFontDB = () => {
+        const useIndexedDB = () => {
             const [savedFonts, setSavedFonts] = useState([]);
+            const [savedTemplates, setSavedTemplates] = useState([]);
+            const [recentFeeds, setRecentFeeds] = useState([]);
+            const [installedExtensions, setInstalledExtensions] = useState([]);
+            const [blacklistedExtensions, setBlacklistedExtensions] = useState([]);
+            const [dbInstance, setDbInstance] = useState(null);
             
             useEffect(() => {
-                const request = indexedDB.open('AudiogramDB', 1);
+                // V4 Upgrade for Extension Blacklisting
+                const request = indexedDB.open('AudiogramProDB', 4);
                 request.onupgradeneeded = (e) => {
-                    e.target.result.createObjectStore('fonts', { keyPath: 'name' });
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('fonts')) db.createObjectStore('fonts', { keyPath: 'name' });
+                    if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('templates')) db.createObjectStore('templates', { keyPath: 'id', autoIncrement: true });
+                    if (!db.objectStoreNames.contains('extensions')) db.createObjectStore('extensions', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('blacklist')) db.createObjectStore('blacklist', { keyPath: 'id' });
                 };
                 request.onsuccess = (e) => {
                     const db = e.target.result;
-                    const tx = db.transaction('fonts', 'readonly');
-                    const store = tx.objectStore('fonts');
-                    store.getAll().onsuccess = (e) => {
-                        const fonts = e.target.result.map(f => f.name);
+                    setDbInstance(db);
+                    
+                    db.transaction('fonts', 'readonly').objectStore('fonts').getAll().onsuccess = (ev) => {
+                        const fonts = ev.target.result.map(f => f.name);
                         setSavedFonts(fonts.length ? fonts : ['Inter']);
                         fonts.forEach(injectFont);
+                    };
+
+                    db.transaction('templates', 'readonly').objectStore('templates').getAll().onsuccess = (ev) => {
+                        setSavedTemplates(ev.target.result);
+                    };
+
+                    db.transaction('history', 'readonly').objectStore('history').getAll().onsuccess = (ev) => {
+                        const historyList = ev.target.result.sort((a, b) => b.timestamp - a.timestamp);
+                        setRecentFeeds(historyList);
+                    };
+
+                    db.transaction('blacklist', 'readonly').objectStore('blacklist').getAll().onsuccess = (ev) => {
+                        setBlacklistedExtensions(ev.target.result.map(b => b.id));
+                    };
+
+                    db.transaction('extensions', 'readonly').objectStore('extensions').getAll().onsuccess = (ev) => {
+                        const exts = ev.target.result;
+                        setInstalledExtensions(exts);
+                        // Auto-load installed extensions silently on boot
+                        exts.forEach(ext => {
+                            try {
+                                const fn = new Function('AudiogramAPI', ext.code + `\n//# sourceURL=ext-${ext.id}.js`);
+                                fn(window.AudiogramAPI);
+                            } catch(err) {
+                                console.error(`Failed to load extension ${ext.name}:`, err);
+                            }
+                        });
                     };
                 };
             }, []);
 
-            const saveFont = (fontName) => {
-                if (savedFonts.includes(fontName)) return;
-                const request = indexedDB.open('AudiogramDB', 1);
-                request.onsuccess = (e) => {
-                    const db = e.target.result;
-                    const tx = db.transaction('fonts', 'readwrite');
-                    tx.objectStore('fonts').put({ name: fontName });
-                    setSavedFonts(prev => [...new Set([...prev, fontName])]);
-                    injectFont(fontName);
-                };
-            };
+            const saveFont = useCallback((fontName) => {
+                if (savedFonts.includes(fontName) || !dbInstance) return;
+                const tx = dbInstance.transaction('fonts', 'readwrite');
+                tx.objectStore('fonts').put({ name: fontName });
+                setSavedFonts(prev => [...new Set([...prev, fontName])]);
+                injectFont(fontName);
+            }, [dbInstance, savedFonts]);
 
-            return { savedFonts, saveFont };
-        };
+            const saveHistory = useCallback((feedUrl, episodeTitle, showTitle, imageUrl) => {
+                if (!feedUrl || !dbInstance) return;
+                const tx = dbInstance.transaction('history', 'readwrite');
+                const newRecord = { id: feedUrl, feedUrl, episodeTitle, showTitle, imageUrl, timestamp: Date.now() };
+                tx.objectStore('history').put(newRecord);
+                
+                setRecentFeeds(prev => {
+                    const filtered = prev.filter(f => f.id !== feedUrl);
+                    return [newRecord, ...filtered];
+                });
+            }, [dbInstance]);
 
-        const usePodcastHistoryDB = () => {
-            const initDB = () => {
+            const getHistory = useCallback(() => {
                 return new Promise((resolve) => {
-                    const request = indexedDB.open('AudiogramHistoryDB', 1);
-                    request.onupgradeneeded = (e) => {
-                        e.target.result.createObjectStore('history', { keyPath: 'id' });
+                    if (!dbInstance) resolve(null);
+                    const tx = dbInstance.transaction('history', 'readonly');
+                    const req = tx.objectStore('history').getAll();
+                    req.onsuccess = () => {
+                        const list = req.result.sort((a, b) => b.timestamp - a.timestamp);
+                        resolve(list.length > 0 ? list[0] : null); 
                     };
-                    request.onsuccess = (e) => resolve(e.target.result);
+                    req.onerror = () => resolve(null);
                 });
-            };
+            }, [dbInstance]);
 
-            const saveHistory = async (feedUrl, episodeTitle, showTitle) => {
-                if (!feedUrl) return;
-                const db = await initDB();
-                const tx = db.transaction('history', 'readwrite');
-                tx.objectStore('history').put({ id: 'last_used', feedUrl, episodeTitle, showTitle, timestamp: Date.now() });
-            };
+            const saveTemplate = useCallback((name, sceneData) => {
+                if (!dbInstance) return;
+                const newTemplate = { name, timestamp: Date.now(), ...sceneData };
+                const tx = dbInstance.transaction('templates', 'readwrite');
+                const req = tx.objectStore('templates').add(newTemplate);
+                req.onsuccess = (e) => {
+                    setSavedTemplates(prev => [...prev, { ...newTemplate, id: e.target.result }]);
+                };
+            }, [dbInstance]);
 
-            const getHistory = async () => {
-                const db = await initDB();
-                return new Promise((resolve) => {
-                    const tx = db.transaction('history', 'readonly');
-                    const request = tx.objectStore('history').get('last_used');
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => resolve(null);
+            const deleteTemplate = useCallback((id) => {
+                if (!dbInstance) return;
+                const tx = dbInstance.transaction('templates', 'readwrite');
+                tx.objectStore('templates').delete(id);
+                setSavedTemplates(prev => prev.filter(t => t.id !== id));
+            }, [dbInstance]);
+
+            const saveExtension = useCallback((extData) => {
+                if (!dbInstance) return;
+                const tx = dbInstance.transaction('extensions', 'readwrite');
+                tx.objectStore('extensions').put(extData);
+                setInstalledExtensions(prev => {
+                    const filtered = prev.filter(e => e.id !== extData.id);
+                    return [...filtered, extData];
                 });
-            };
+            }, [dbInstance]);
 
-            return { saveHistory, getHistory };
+            const deleteExtensionDb = useCallback((id) => {
+                if (!dbInstance) return;
+                const tx = dbInstance.transaction('extensions', 'readwrite');
+                tx.objectStore('extensions').delete(id);
+                setInstalledExtensions(prev => prev.filter(e => e.id !== id));
+            }, [dbInstance]);
+
+            const addExtensionToBlacklist = useCallback((id) => {
+                if (!dbInstance) return;
+                const tx = dbInstance.transaction('blacklist', 'readwrite');
+                tx.objectStore('blacklist').put({ id });
+                setBlacklistedExtensions(prev => [...new Set([...prev, id])]);
+            }, [dbInstance]);
+
+            const clearExtensionBlacklist = useCallback(() => {
+                if (!dbInstance) return;
+                const tx = dbInstance.transaction('blacklist', 'readwrite');
+                tx.objectStore('blacklist').clear();
+                setBlacklistedExtensions([]);
+            }, [dbInstance]);
+
+            return { savedFonts, saveFont, saveHistory, getHistory, recentFeeds, savedTemplates, saveTemplate, deleteTemplate, installedExtensions, saveExtension, deleteExtensionDb, blacklistedExtensions, addExtensionToBlacklist, clearExtensionBlacklist };
         };
 
         function App() {
+            // --- Toast Notification System ---
+            const [toast, setToast] = useState(null);
+            const showToast = useCallback((msg, type = 'error') => {
+                setToast({ msg, type });
+                setTimeout(() => setToast(null), 5500);
+            }, []);
+
             const [rssUrl, setRssUrl] = useState('');
+            const [licenseKey, setLicenseKey] = useState(() => localStorage.getItem("rssproxy_key") || '');
             const [feedData, setFeedData] = useState(null);
             const [episodes, setEpisodes] = useState([]);
             const [selectedEpisode, setSelectedEpisode] = useState(null);
             const [loading, setLoading] = useState(false);
+            const [extensionLoading, setExtensionLoading] = useState(false);
             
+            // Audio State
             const audioRef = useRef(new Audio());
             const audioCtxRef = useRef(null);
             const analyserRef = useRef(null);
             const mediaSourceRef = useRef(null);
             const destRef = useRef(null);
+            
             const [isPlaying, setIsPlaying] = useState(false);
+            const [audioLoading, setAudioLoading] = useState(false);
+            const [audioError, setAudioError] = useState(null);
+            
             const [currentTime, setCurrentTime] = useState(0);
             const [duration, setDuration] = useState(1);
             const [trimStart, setTrimStart] = useState(0);
             const [trimEnd, setTrimEnd] = useState(30);
-            const [mockSoundbites, setMockSoundbites] = useState([]);
+            const [ignoreTrim, setIgnoreTrim] = useState(false); 
+            const [episodeSoundbites, setEpisodeSoundbites] = useState([]);
 
             const canvasRef = useRef(null);
             const sceneRef = useRef({
-                width: 1080, height: 1080, background: '#09090b', 
+                width: 1080, height: 1080, background: '#09090b', format: 'SQUARE',
                 elements: [
-                    { id: 'cover', type: 'image', x: 240, y: 140, w: 600, h: 600, radius: 40, src: '' },
-                    { id: 'wave', type: 'waveform', x: 140, y: 800, w: 800, h: 120, color: '#6366f1', style: 'bars' },
-                    { id: 'title', type: 'text', x: 140, y: 940, w: 800, text: 'Title', font: 'Inter', size: 48, color: '#ffffff', align: 'center', weight: '800' }
+                    { id: 'cover', type: 'image', x: 240, y: 100, w: 600, h: 600, radius: 40, src: '' },
+                    { id: 'wave', type: 'waveform', x: 140, y: 740, w: 800, h: 100, color: '#6366f1', style: 'bars' },
+                    { id: 'show', type: 'text', x: 140, y: 860, w: 800, h: 40, text: 'Podcast Name', font: 'Inter', size: 32, color: '#a1a1aa', align: 'center', weight: '600' },
+                    { id: 'title', type: 'text', x: 140, y: 910, w: 800, h: 100, text: 'Episode Title', font: 'Inter', size: 48, color: '#ffffff', align: 'center', weight: '800' }
                 ]
             });
             const [currentFormat, setCurrentFormat] = useState('SQUARE');
@@ -212,11 +408,26 @@
             const mediaRecorderRef = useRef(null);
             const chunksRef = useRef([]);
 
+            // Navigation state
             const [mobilePanel, setMobilePanel] = useState('none'); 
+            const [rightTab, setRightTab] = useState('properties'); // 'properties' or 'modules'
             const [welcomeModal, setWelcomeModal] = useState(null);
+            const [limitModal, setLimitModal] = useState(null);
+            const [isSoundbiteModalOpen, setIsSoundbiteModalOpen] = useState(false);
+            const [newTemplateName, setNewTemplateName] = useState('');
 
-            const { savedFonts, saveFont } = useFontDB();
-            const { saveHistory, getHistory } = usePodcastHistoryDB();
+            // Custom Trimmer State
+            const trimmerRef = useRef(null);
+            const [trimInteraction, setTrimInteraction] = useState(null);
+
+            const { savedFonts, saveFont, saveHistory, getHistory, recentFeeds, savedTemplates, saveTemplate, deleteTemplate, installedExtensions, saveExtension, deleteExtensionDb, blacklistedExtensions, addExtensionToBlacklist, clearExtensionBlacklist } = useIndexedDB();
+
+            // Re-render when global Extension API updates
+            useEffect(() => {
+                const handleExtUpdate = () => forceUpdate();
+                window.addEventListener('audiogram:ext:update', handleExtUpdate);
+                return () => window.removeEventListener('audiogram:ext:update', handleExtUpdate);
+            }, []);
 
             useEffect(() => {
                 const handleContextMenu = (e) => e.preventDefault();
@@ -238,13 +449,15 @@
                 };
             }, []);
 
+            const hasCheckedHistory = useRef(false);
             useEffect(() => {
-                const checkHistory = async () => {
+                if (hasCheckedHistory.current) return;
+                
+                const checkBackgroundHistory = async () => {
                     const hist = await getHistory();
                     if (hist && hist.feedUrl) {
                         try {
-                            const res = await fetch(CORS_PROXY(hist.feedUrl));
-                            const text = await res.text();
+                            const text = await fetchPodcastFeed(hist.feedUrl, licenseKey);
                             const parser = new DOMParser();
                             const xml = parser.parseFromString(text, 'text/xml');
                             
@@ -262,12 +475,161 @@
                                 });
                             }
                         } catch (e) {
-                            console.error("Failed to check background history.");
+                            console.error("Silent history check failed.");
                         }
                     }
                 };
-                checkHistory();
-            }, []);
+                
+                hasCheckedHistory.current = true;
+                setTimeout(() => checkBackgroundHistory(), 1000);
+            }, [licenseKey, getHistory]);
+
+            const handleSaveLicense = (key) => {
+                setLicenseKey(key);
+                localStorage.setItem("rssproxy_key", key);
+            };
+
+            const fetchRSS = async (urlToFetch = rssUrl) => {
+                if (!urlToFetch) return;
+                setLoading(true);
+                setRssUrl(urlToFetch); 
+                try {
+                    const text = await fetchPodcastFeed(urlToFetch, licenseKey);
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(text, 'text/xml');
+                    
+                    // Robust XML Image Extraction for both Show and Episode covers
+                    const extractImage = (node) => {
+                        let img = node.getElementsByTagName('itunes:image')[0];
+                        if (img && img.getAttribute('href')) return img.getAttribute('href');
+                        img = Array.from(node.children).find(c => c.tagName.toLowerCase() === 'itunes:image');
+                        if (img && img.getAttribute('href')) return img.getAttribute('href');
+                        const urlNode = node.querySelector('image > url');
+                        if (urlNode && urlNode.textContent) return urlNode.textContent.trim();
+                        return null;
+                    };
+
+                    const channel = xml.querySelector('channel');
+                    const showTitle = channel.querySelector('title')?.textContent;
+                    const showImage = extractImage(channel);
+                    
+                    const items = Array.from(xml.querySelectorAll('item')).map(item => {
+                        let parsedSoundbites = [];
+                        let sbs = Array.from(item.getElementsByTagName('podcast:soundbite'));
+                        if (sbs.length === 0) sbs = Array.from(item.getElementsByTagName('soundbite')); 
+                        
+                        parsedSoundbites = sbs.map((node, idx) => ({
+                            id: idx,
+                            label: node.textContent?.trim() || `Soundbite ${idx + 1}`,
+                            start: parseFloat(node.getAttribute('startTime')) || 0,
+                            end: (parseFloat(node.getAttribute('startTime')) || 0) + (parseFloat(node.getAttribute('duration')) || 0)
+                        }));
+
+                        // Extract episode-specific image, fallback to show image if missing
+                        const epImage = extractImage(item) || showImage;
+
+                        return {
+                            title: item.querySelector('title')?.textContent,
+                            audioUrl: item.querySelector('enclosure')?.getAttribute('url'),
+                            image: epImage,
+                            soundbites: parsedSoundbites
+                        };
+                    }).filter(i => i.audioUrl);
+
+                    if (items.length === 0) {
+                        showToast("No audio files found. Please provide an Audio Podcast RSS feed.", "error");
+                        setLoading(false);
+                        return;
+                    }
+
+                    setFeedData({ title: showTitle, image: showImage });
+                    setEpisodes(items);
+                    if (items.length > 0) selectEpisode(items[0], showTitle, showImage);
+                } catch (e) {
+                    if (e.code === "LIMIT_REACHED") {
+                        setLimitModal(e.message);
+                    } else {
+                        showToast(e.message || "Failed to parse RSS feed. It may be private or invalid.", "error");
+                    }
+                }
+                setLoading(false);
+            };
+
+            const loadAudioFile = (url) => {
+                setAudioLoading(true);
+                setAudioError(null);
+                
+                const audio = audioRef.current;
+                audio.pause();
+                audio.src = ''; 
+                audio.oncanplay = null;
+                audio.onerror = null;
+                audio.crossOrigin = "anonymous"; // Essential for AnalyserNode
+                
+                audio.oncanplay = () => {
+                    setAudioLoading(false);
+                    setAudioError(null);
+                };
+                
+                audio.onerror = (e) => {
+                    console.error("Audio Load Error:", e);
+                    setAudioLoading(false);
+                    setAudioError("CORS_BLOCKED");
+                    showToast("Podcast host blocked secure audio streaming (CORS). We cannot analyze the waveform.", "error");
+                };
+                
+                audio.src = url;
+                audio.load();
+            };
+
+            const selectEpisode = (ep, showTitle, overrideShowImage) => {
+                const sImage = overrideShowImage || feedData?.image;
+                setSelectedEpisode(ep);
+                setEpisodeSoundbites(ep.soundbites || []);
+                setIsPlaying(false);
+                
+                sceneRef.current.elements = sceneRef.current.elements.map(el => {
+                    if (el.id === 'title') return { ...el, text: ep.title };
+                    if (el.id === 'show') return { ...el, text: showTitle || 'Podcast Name' };
+                    
+                    if (el.type === 'image') {
+                        let newSrc = el.src;
+                        let st = el.sourceType;
+                        // Map the default template 'cover' to the episode image automatically
+                        if (el.id === 'cover' && !st) st = 'episode';
+
+                        if (st === 'episode') newSrc = ep.image || sImage; // Use sImage as safety net
+                        else if (st === 'show') newSrc = sImage;
+
+                        return { ...el, src: newSrc || el.src, sourceType: st || 'custom' };
+                    }
+                    return el;
+                });
+                
+                if (ep.image) {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => forceUpdate();
+                    img.onerror = () => {
+                        // Fallback if proxy rejects image
+                        if (img.src.includes('allorigins')) {
+                            img.crossOrigin = '';
+                            img.src = ep.image;
+                        }
+                    };
+                    img.src = CORS_MEDIA_PROXY(ep.image);
+                    img._srcUrl = ep.image;
+                } else {
+                    forceUpdate();
+                }
+
+                if (ep.audioUrl) {
+                    loadAudioFile(ep.audioUrl);
+                } else {
+                    audioRef.current.src = '';
+                    setDuration(1); 
+                }
+            };
 
             const initAudio = useCallback(() => {
                 if (!audioCtxRef.current) {
@@ -286,87 +648,21 @@
                 }
             }, []);
 
-            const fetchRSS = async (urlToFetch = rssUrl) => {
-                if (!urlToFetch) return;
-                setLoading(true);
-                setRssUrl(urlToFetch); 
-                try {
-                    const res = await fetch(CORS_PROXY(urlToFetch));
-                    const text = await res.text();
-                    const parser = new DOMParser();
-                    const xml = parser.parseFromString(text, 'text/xml');
-                    
-                    const channel = xml.querySelector('channel');
-                    const showTitle = channel.querySelector('title')?.textContent;
-                    const showImage = channel.querySelector('image > url')?.textContent || channel.querySelector('itunes\\:image')?.getAttribute('href');
-                    
-                    const items = Array.from(xml.querySelectorAll('item')).map(item => ({
-                        title: item.querySelector('title')?.textContent,
-                        audioUrl: item.querySelector('enclosure')?.getAttribute('url'),
-                        image: item.querySelector('itunes\\:image')?.getAttribute('href') || showImage,
-                    })).filter(i => i.audioUrl);
-
-                    if (items.length === 0) {
-                        alert("This feed does not contain valid audio episodes. Audiogram Pro requires an Audio Podcast RSS feed.");
-                        setLoading(false);
-                        return;
-                    }
-
-                    setFeedData({ title: showTitle, image: showImage });
-                    setEpisodes(items);
-                    if (items.length > 0) selectEpisode(items[0], showTitle);
-                } catch (e) {
-                    alert("Failed to parse RSS feed. Ensure it's a valid Podcast XML.");
-                }
-                setLoading(false);
-            };
-
-            const selectEpisode = (ep, showTitle) => {
-                setSelectedEpisode(ep);
-                
-                if (isPlaying) {
-                    audioRef.current.pause();
-                    setIsPlaying(false);
-                }
-
-                if (ep.audioUrl) {
-                    audioRef.current.src = CORS_PROXY(ep.audioUrl);
-                } else {
-                    audioRef.current.src = '';
-                    setDuration(1); 
-                }
-                
-                sceneRef.current.elements = sceneRef.current.elements.map(el => {
-                    if (el.id === 'title') return { ...el, text: ep.title };
-                    if (el.id === 'cover') return { ...el, src: ep.image };
-                    return el;
-                });
-                
-                if (ep.image) {
-                    const img = new Image();
-                    img.crossOrigin = 'anonymous';
-                    img.src = CORS_PROXY(ep.image);
-                    img.onload = () => forceUpdate();
-                } else {
-                    forceUpdate();
-                }
-            };
-
+            // Strict Audio Boundary Enforcement
             useEffect(() => {
                 const audio = audioRef.current;
-                const updateTime = () => setCurrentTime(audio.currentTime);
-                const updateDuration = () => {
-                    const d = audio.duration || 1;
-                    setDuration(d);
-                    if (trimEnd === 30) setTrimEnd(Math.min(d, 30));
-                    
-                    if (d > 60) {
-                        setMockSoundbites([
-                            { id: 1, label: "Intro Hook", start: 0, end: Math.min(30, d), icon: '🔥' },
-                            { id: 2, label: "Key Insight", start: Math.floor(d * 0.25), end: Math.floor(d * 0.25) + 45, icon: '💡' },
-                            { id: 3, label: "Deep Dive", start: Math.floor(d * 0.6), end: Math.floor(d * 0.6) + 60, icon: '🧠' }
-                        ]);
+                const updateTime = () => {
+                    setCurrentTime(audio.currentTime);
+                    if (!ignoreTrim && audio.currentTime >= trimEnd && !audio.paused) {
+                        audio.pause();
+                        setIsPlaying(false);
+                        audio.currentTime = trimStart; // Snap back to start
                     }
+                };
+                const updateDuration = () => {
+                    const d = audio.duration && isFinite(audio.duration) && audio.duration > 1 ? audio.duration : 1;
+                    setDuration(d);
+                    if (trimEnd === 30 && d > 30) setTrimEnd(30);
                 };
                 
                 audio.addEventListener('timeupdate', updateTime);
@@ -376,21 +672,93 @@
                     audio.removeEventListener('timeupdate', updateTime);
                     audio.removeEventListener('loadedmetadata', updateDuration);
                 };
-            }, [trimEnd]);
+            }, [trimEnd, trimStart, ignoreTrim]);
 
-            const togglePlay = () => {
-                if (!selectedEpisode?.audioUrl) return; 
+            const togglePlay = (forcePlay = false) => {
+                if (!selectedEpisode?.audioUrl || audioError) {
+                    if (audioError) showToast("Cannot play: Audio blocked by host.", "error");
+                    return;
+                }
                 
                 initAudio();
                 if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
                 
-                if (isPlaying) {
+                if (isPlaying && !forcePlay) {
                     audioRef.current.pause();
+                    setIsPlaying(false);
                 } else {
-                    if (currentTime >= trimEnd) audioRef.current.currentTime = trimStart;
-                    audioRef.current.play().catch(e => console.error(e));
+                    if (!ignoreTrim && (currentTime >= trimEnd || currentTime < trimStart)) {
+                        audioRef.current.currentTime = trimStart;
+                    }
+                    const playPromise = audioRef.current.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => setIsPlaying(true)).catch(error => {
+                            console.log("Autoplay blocked. User interaction required.", error);
+                            showToast("Autoplay blocked by browser. Please click play manually.", "error");
+                        });
+                    }
                 }
-                setIsPlaying(!isPlaying);
+            };
+
+            const handleSoundbiteSelect = (start, end) => {
+                setTrimStart(start);
+                setTrimEnd(end);
+                setIsSoundbiteModalOpen(false);
+                if (audioRef.current && !audioLoading && !audioError) {
+                    audioRef.current.currentTime = start;
+                    togglePlay(true);
+                } else if (audioError) {
+                    showToast("Soundbite selected, but audio cannot be played due to host restrictions.", "error");
+                }
+            };
+
+            // --- Hot-Swap Modules Execution Engine with Blacklisting ---
+            const fetchExtensions = async () => {
+                setExtensionLoading(true);
+                try {
+                    const res = await fetch("https://api.github.com/repos/F-O-R-G-E-Open-Source-Philanthropy/audiogram/contents/extensions");
+                    if (!res.ok) throw new Error("Could not fetch extension directory. Check repository availability.");
+                    
+                    const files = await res.json();
+                    let installedCount = 0;
+                    let skippedCount = 0;
+
+                    for (const file of files) {
+                        if (file.name.endsWith('.js')) {
+                            const codeRes = await fetch(file.download_url);
+                            const code = await codeRes.text();
+                            const extData = parseExtension(code);
+                            
+                            // Check if Blacklisted or Already Installed
+                            if (blacklistedExtensions.includes(extData.id)) {
+                                skippedCount++;
+                            } else if (!installedExtensions.find(e => e.id === extData.id)) {
+                                saveExtension(extData);
+                                // Hot Execute Immediately
+                                const fn = new Function('AudiogramAPI', extData.code + `\n//# sourceURL=ext-${extData.id}.js`);
+                                fn(window.AudiogramAPI);
+                                installedCount++;
+                            }
+                        }
+                    }
+                    if (installedCount > 0) {
+                        showToast(`Successfully installed ${installedCount} core extensions!`, "success");
+                    } else if (skippedCount > 0) {
+                        showToast(`All available modules installed. (Skipped ${skippedCount} hidden modules).`, "success");
+                    } else {
+                        showToast("All available core extensions are already installed.", "success");
+                    }
+                } catch (e) {
+                    showToast(e.message, "error");
+                }
+                setExtensionLoading(false);
+            };
+
+            const handleRemoveExtension = (id) => {
+                window.AudiogramAPI.unregister(id); // Execute teardown logic from script
+                deleteExtensionDb(id); // Remove from IndexedDB
+                addExtensionToBlacklist(id); // Burn ID into blacklist so it doesn't auto-fetch again
+                showToast("Extension securely removed and hidden from future updates.", "success");
             };
 
             const drawScene = useCallback(() => {
@@ -400,28 +768,33 @@
                 const scene = sceneRef.current;
                 
                 ctx.clearRect(0, 0, scene.width, scene.height);
-                
                 ctx.fillStyle = scene.background;
                 ctx.fillRect(0, 0, scene.width, scene.height);
 
                 scene.elements.forEach(el => {
                     ctx.save();
-                    let renderedHeight = el.h;
                     
                     if (el.type === 'text') {
                         ctx.font = `${el.weight || '600'} ${el.size}px "${el.font}"`;
                         ctx.fillStyle = el.color;
-                        ctx.textAlign = 'left'; 
-                        ctx.textBaseline = 'top';
-                        renderedHeight = wrapText(ctx, el.text, el.x, el.y, el.w, el.size * 1.2, el.align || 'center');
-                        el._renderedHeight = renderedHeight; 
+                        // Auto-calculate exact height required for perfect AABB matching
+                        const exactHeight = wrapText(ctx, el.text, el.x, el.y, el.w, el.size * 1.2, el.align || 'center');
+                        el.h = exactHeight; 
                     } 
                     else if (el.type === 'image' && el.src) {
-                        if (!el._img || el._img.src !== el.src) {
+                        if (!el._img || el._img._srcUrl !== el.src) {
                             const img = new Image();
                             img.crossOrigin = 'anonymous';
-                            img.src = CORS_PROXY(el.src);
+                            img.onload = () => forceUpdate();
+                            img.onerror = () => {
+                                if (img.src.includes('allorigins')) {
+                                    img.crossOrigin = '';
+                                    img.src = el.src;
+                                }
+                            };
+                            img.src = CORS_MEDIA_PROXY(el.src);
                             el._img = img;
+                            el._img._srcUrl = el.src;
                         }
                         if (el._img && el._img.complete) {
                             if (el.radius) {
@@ -437,7 +810,7 @@
                     }
                     else if (el.type === 'waveform') {
                         const dataArray = new Uint8Array(analyserRef.current ? analyserRef.current.frequencyBinCount : 0);
-                        if (analyserRef.current && isPlaying) {
+                        if (analyserRef.current && isPlaying && !audioError) {
                             analyserRef.current.getByteFrequencyData(dataArray);
                         }
                         
@@ -445,19 +818,66 @@
                         const bars = 40;
                         const barWidth = el.w / bars;
                         const gap = barWidth * 0.3;
+
+                        // Master Full-Width FFT Fix: Create a mathematically smoothed curve mapping
+                        // the bottom 45% of the FFT (where the voice lives) across ALL 40 bars.
+                        const usableBins = analyserRef.current ? Math.floor(analyserRef.current.frequencyBinCount * 0.45) : bars;
+                        const getVal = (i, totalBars) => {
+                            const indexRatio = Math.pow(i / totalBars, 1.2);
+                            const dataIndex = Math.floor(indexRatio * usableBins);
+                            let val = dataArray[dataIndex] || 0;
+                            // Add a tiny noise floor if playing so high-freq bars never look completely dead
+                            if (isPlaying && !audioError && val < 4) val = 4 + Math.random() * 4; 
+                            return val;
+                        };
                         
-                        for (let i = 0; i < bars; i++) {
-                            const val = dataArray[i * 2] || 0;
-                            const heightPercent = val / 255;
-                            const barHeight = Math.max(el.h * heightPercent, 6); 
-                            
-                            ctx.beginPath();
-                            if (el.style === 'bars_mirrored') {
-                                ctx.roundRect(el.x + i * barWidth, el.y + el.h/2 - barHeight/2, barWidth - gap, barHeight, (barWidth-gap)/2);
-                            } else {
-                                ctx.roundRect(el.x + i * barWidth, el.y + el.h - barHeight, barWidth - gap, barHeight, (barWidth-gap)/2);
+                        // Hot-Swap Extension Rendering
+                        if (window.AudiogramAPI?.waveforms[el.style]) {
+                            window.AudiogramAPI.waveforms[el.style]({ ctx, el, dataArray, isPlaying, bars, barWidth, gap });
+                        } 
+                        else if (el.style === 'circle') {
+                            const cx = el.x + el.w / 2;
+                            const cy = el.y + el.h / 2;
+                            const radius = Math.min(el.w, el.h) / 3;
+                            for (let i = 0; i < bars; i++) {
+                                const val = getVal(i, bars);
+                                const heightPercent = val / 255;
+                                const barHeight = Math.max((radius * 0.8) * heightPercent, 5); 
+                                const angle = (i / bars) * Math.PI * 2;
+                                ctx.save();
+                                ctx.translate(cx, cy);
+                                ctx.rotate(angle);
+                                ctx.beginPath();
+                                ctx.roundRect(-barWidth/2, radius, barWidth - gap, barHeight, (barWidth-gap)/2);
+                                ctx.fill();
+                                ctx.restore();
                             }
-                            ctx.fill();
+                        } else if (el.style === 'line') {
+                            ctx.beginPath();
+                            ctx.strokeStyle = el.color;
+                            ctx.lineWidth = 4;
+                            for (let i = 0; i < bars; i++) {
+                                const val = getVal(i, bars);
+                                const heightPercent = val / 255;
+                                const yPos = el.y + el.h/2 - (el.h/2 * heightPercent);
+                                const xPos = el.x + i * barWidth;
+                                if (i === 0) ctx.moveTo(xPos, yPos);
+                                else ctx.lineTo(xPos, yPos);
+                            }
+                            ctx.stroke();
+                        } else {
+                            for (let i = 0; i < bars; i++) {
+                                const val = getVal(i, bars);
+                                const heightPercent = val / 255;
+                                const barHeight = Math.max(el.h * heightPercent, 6); 
+                                ctx.beginPath();
+                                if (el.style === 'bars_mirrored') {
+                                    ctx.roundRect(el.x + i * barWidth, el.y + el.h/2 - barHeight/2, barWidth - gap, barHeight, (barWidth-gap)/2);
+                                } else {
+                                    ctx.roundRect(el.x + i * barWidth, el.y + el.h - barHeight, barWidth - gap, barHeight, (barWidth-gap)/2);
+                                }
+                                ctx.fill();
+                            }
                         }
                     }
                     else if (el.type === 'progress') {
@@ -467,38 +887,36 @@
                         ctx.clip();
                         
                         ctx.fillStyle = el.color;
-                        const progress = Math.max(0, Math.min(1, (currentTime - trimStart) / (trimEnd - trimStart || 1)));
+                        let progress = 0;
+                        if (duration > 1) {
+                            if (ignoreTrim) {
+                                progress = Math.max(0, Math.min(1, currentTime / duration));
+                            } else if (trimEnd > trimStart) {
+                                progress = Math.max(0, Math.min(1, (currentTime - trimStart) / (trimEnd - trimStart)));
+                            }
+                        }
                         ctx.fillRect(el.x, el.y, el.w * progress, el.h);
                     }
 
                     ctx.restore();
                     
                     if (selectedId === el.id && !isExporting) {
-                        const h = el.type === 'text' ? el._renderedHeight : el.h;
                         ctx.strokeStyle = '#6366f1'; 
-                        ctx.lineWidth = 3;
-                        ctx.strokeRect(el.x, el.y, el.w, h);
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(el.x, el.y, el.w, el.h);
                         
+                        // Physically Offset Resize Handle to perfectly prevent Drag Overlap
                         ctx.fillStyle = '#ffffff';
                         ctx.strokeStyle = '#6366f1';
-                        ctx.lineWidth = 2;
-                        const handleSize = 14;
-                        
-                        const drawHandle = (hx, hy) => {
-                            ctx.beginPath();
-                            ctx.arc(hx, hy, handleSize/2, 0, Math.PI*2);
-                            ctx.fill();
-                            ctx.stroke();
-                        };
-
-                        drawHandle(el.x, el.y); 
-                        drawHandle(el.x + el.w, el.y); 
-                        drawHandle(el.x, el.y + h); 
-                        drawHandle(el.x + el.w, el.y + h); 
+                        ctx.lineWidth = 4;
+                        ctx.beginPath();
+                        ctx.arc(el.x + el.w + 14, el.y + el.h + 14, 16, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.stroke();
                     }
                 });
 
-            }, [isPlaying, currentTime, selectedId, trimStart, trimEnd, isExporting]);
+            }, [isPlaying, currentTime, selectedId, trimStart, trimEnd, isExporting, audioError, ignoreTrim, uiState.tick]);
 
             useEffect(() => {
                 let animationFrame;
@@ -514,46 +932,50 @@
                 const rect = canvasRef.current.getBoundingClientRect();
                 const scaleX = canvasRef.current.width / rect.width;
                 const scaleY = canvasRef.current.height / rect.height;
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                
                 return {
-                    x: (clientX - rect.left) * scaleX,
-                    y: (clientY - rect.top) * scaleY
+                    x: (e.clientX - rect.left) * scaleX,
+                    y: (e.clientY - rect.top) * scaleY
                 };
             };
 
             const handlePointerDown = (e) => {
                 if (isExporting) return;
+                
+                if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+                    audioCtxRef.current.resume();
+                }
+
                 const { x, y } = getPointerPos(e);
                 
+                // 1. Check Resize First (Absolute Priority, Strictly Outside Bounds)
                 if (selectedId) {
                     const el = sceneRef.current.elements.find(e => e.id === selectedId);
                     if (el) {
-                        const h = el.type === 'text' ? el._renderedHeight : el.h;
-                        const hs = 20; 
-                        
-                        if (Math.abs(x - (el.x + el.w)) <= hs && Math.abs(y - (el.y + h)) <= hs) {
-                            setInteractionState({ type: 'resizing', id: el.id, startX: x, startY: y, initW: el.w, initH: el.h || h });
-                            return;
+                        const handleX = el.x + el.w + 14;
+                        const handleY = el.y + el.h + 14;
+                        // Massive 40px forgiving touch radius exclusively for the resize corner
+                        if (Math.abs(x - handleX) <= 40 && Math.abs(y - handleY) <= 40) {
+                            setInteractionState({ type: 'resizing', id: el.id, startX: x, startY: y, initW: el.w, initH: el.h });
+                            e.target.setPointerCapture(e.pointerId);
+                            return; // Stop execution here so it never hits the drag logic below
                         }
                     }
                 }
 
+                // 2. Check Dragging Second (Strictly inside boundaries)
                 let clickedId = null;
                 for (let i = sceneRef.current.elements.length - 1; i >= 0; i--) {
                     const el = sceneRef.current.elements[i];
-                    const h = el.type === 'text' ? (el._renderedHeight || el.size * 1.5) : el.h;
-                    if (x >= el.x && x <= el.x + el.w && y >= el.y && y <= el.y + h) {
+                    if (x >= el.x && x <= el.x + el.w && y >= el.y && y <= el.y + el.h) {
                         clickedId = el.id;
                         setInteractionState({ type: 'dragging', id: el.id, startX: x, startY: y, initX: el.x, initY: el.y });
+                        e.target.setPointerCapture(e.pointerId);
                         break;
                     }
                 }
                 
                 setSelectedId(clickedId);
                 if (!clickedId) forceUpdate();
-                if (clickedId && window.innerWidth < 1024) setMobilePanel('right');
             };
 
             const handlePointerMove = (e) => {
@@ -579,15 +1001,74 @@
                 }
             };
 
-            const handlePointerUp = () => setInteractionState({ type: null });
+            const handlePointerUp = (e) => {
+                setInteractionState({ type: null });
+                if (e.target.hasPointerCapture(e.pointerId)) {
+                    e.target.releasePointerCapture(e.pointerId);
+                }
+            };
+
+            // --- Mobile Forgiving Audio Trimmer & Playhead Logic ---
+            const handleTrimPointerDown = (e, handle) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (audioLoading || audioError) {
+                    if (audioError) showToast("Audio blocked. Trimming disabled.", "error");
+                    return;
+                }
+                setTrimInteraction(handle);
+                e.target.setPointerCapture(e.pointerId);
+            };
+
+            const handleTrimPointerMove = useCallback((e) => {
+                if (!trimInteraction || !trimmerRef.current || duration <= 1) return;
+                const rect = trimmerRef.current.getBoundingClientRect();
+                const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+                let percent = (clientX - rect.left) / rect.width;
+                percent = Math.max(0, Math.min(1, percent));
+                const newTime = percent * duration;
+
+                if (trimInteraction === 'start') {
+                    if (newTime < trimEnd - 1) setTrimStart(newTime);
+                } else if (trimInteraction === 'end') {
+                    if (newTime > trimStart + 1) setTrimEnd(newTime);
+                } else if (trimInteraction === 'playhead') {
+                    audioRef.current.currentTime = newTime;
+                    setCurrentTime(newTime);
+                }
+            }, [trimInteraction, duration, trimStart, trimEnd]);
+
+            const handleTrimPointerUp = useCallback((e) => {
+                setTrimInteraction(null);
+                if (e.target && e.target.hasPointerCapture && e.target.hasPointerCapture(e.pointerId)) {
+                    e.target.releasePointerCapture(e.pointerId);
+                }
+            }, []);
+
+            useEffect(() => {
+                if (trimInteraction) {
+                    window.addEventListener('pointermove', handleTrimPointerMove);
+                    window.addEventListener('touchmove', handleTrimPointerMove, { passive: false });
+                    window.addEventListener('pointerup', handleTrimPointerUp);
+                    window.addEventListener('touchend', handleTrimPointerUp);
+                    return () => {
+                        window.removeEventListener('pointermove', handleTrimPointerMove);
+                        window.removeEventListener('touchmove', handleTrimPointerMove);
+                        window.removeEventListener('pointerup', handleTrimPointerUp);
+                        window.removeEventListener('touchend', handleTrimPointerUp);
+                    };
+                }
+            }, [trimInteraction, handleTrimPointerMove, handleTrimPointerUp]);
 
             const startExport = () => {
-                if (!selectedEpisode) return alert("Select an episode first.");
+                if (!selectedEpisode) return showToast("Select an episode first.");
+                if (audioError) return showToast("Cannot export: Audio blocked by CORS. Backend Proxy update required.", "error");
+                
                 initAudio();
                 setIsExporting(true);
                 setSelectedId(null); 
                 
-                saveHistory(rssUrl, selectedEpisode.title, feedData?.title);
+                saveHistory(rssUrl, selectedEpisode.title, feedData?.title, selectedEpisode.image || feedData?.image);
                 
                 setTimeout(() => {
                     const canvas = canvasRef.current;
@@ -623,19 +1104,28 @@
                         setIsExporting(false);
                     };
 
+                    const exportStart = ignoreTrim ? 0 : trimStart;
+                    const exportEnd = ignoreTrim ? duration : trimEnd;
+
                     if (selectedEpisode.audioUrl) {
-                        audioRef.current.currentTime = trimStart;
-                        audioRef.current.play();
-                        setIsPlaying(true);
-                    } else {
-                        setTimeout(() => {
-                            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                                stopExport();
-                            }
-                        }, (trimEnd - trimStart) * 1000);
-                    }
+                        audioRef.current.currentTime = exportStart;
+                        const playPromise = audioRef.current.play();
+                        if (playPromise !== undefined) {
+                            playPromise.then(() => setIsPlaying(true)).catch(e => {
+                                console.error("Export autoplay blocked:", e);
+                                showToast("Browser blocked export audio. Try clicking play manually first.", "error");
+                                setIsExporting(false);
+                            });
+                        }
+                    } 
                     
-                    mediaRecorderRef.current.start();
+                    setTimeout(() => {
+                        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                            stopExport();
+                        }
+                    }, (exportEnd - exportStart) * 1000);
+                    
+                    if (mediaRecorderRef.current) mediaRecorderRef.current.start();
                 }, 100);
             };
 
@@ -660,8 +1150,8 @@
                 
                 const newEl = {
                     id: `${type}-${Date.now()}`, type, x: cx - 200, y: cy - 100, w: 400,
-                    ...(type === 'text' && { text: 'New Text Block', font: 'Inter', size: 64, color: '#ffffff', align: 'center', weight: '800' }),
-                    ...(type === 'image' && { h: 400, radius: 20, src: 'https://via.placeholder.com/400' }),
+                    ...(type === 'text' && { text: 'New Text Block', font: 'Inter', size: 64, color: '#ffffff', align: 'center', weight: '800', h: 100 }),
+                    ...(type === 'image' && { h: 400, radius: 32, src: selectedEpisode?.image || 'https://via.placeholder.com/400', sourceType: selectedEpisode ? 'episode' : 'custom' }),
                     ...(type === 'waveform' && { h: 120, color: '#6366f1', style: 'bars' }),
                     ...(type === 'progress' && { h: 12, color: '#ffffff', radius: 6 })
                 };
@@ -681,6 +1171,7 @@
                 setCurrentFormat(formatKey);
                 sceneRef.current.width = fmt.width;
                 sceneRef.current.height = fmt.height;
+                sceneRef.current.format = formatKey;
                 forceUpdate();
             };
 
@@ -699,6 +1190,29 @@
                 forceUpdate();
             };
 
+            const handleSaveCustomTemplate = () => {
+                if (!newTemplateName.trim()) return showToast("Please enter a template name.");
+                saveTemplate(newTemplateName, {
+                    width: sceneRef.current.width,
+                    height: sceneRef.current.height,
+                    background: sceneRef.current.background,
+                    format: sceneRef.current.format,
+                    elements: JSON.parse(JSON.stringify(sceneRef.current.elements))
+                });
+                setNewTemplateName('');
+                showToast("Template saved locally!", "success");
+            };
+
+            const loadTemplate = (tmpl) => {
+                sceneRef.current.width = tmpl.width;
+                sceneRef.current.height = tmpl.height;
+                sceneRef.current.background = tmpl.background;
+                setCurrentFormat(tmpl.format || 'SQUARE');
+                sceneRef.current.elements = JSON.parse(JSON.stringify(tmpl.elements));
+                setSelectedId(null);
+                forceUpdate();
+            };
+
             const selectedEl = useMemo(() => 
                 sceneRef.current.elements.find(el => el.id === selectedId),
             [selectedId, uiState]);
@@ -714,24 +1228,33 @@
                 return `${m}:${s.toString().padStart(2, '0')}`;
             };
 
+            // Calculate precise visual clamps for the trimmer
+            const leftPercent = duration > 1 ? Math.min(100, Math.max(0, (trimStart / duration) * 100)) : 0;
+            const widthPercent = duration > 1 ? Math.min(100 - leftPercent, Math.max(0, ((trimEnd - trimStart) / duration) * 100)) : 100;
+            const currentPercent = duration > 1 ? (currentTime / duration) * 100 : 0;
+
             return (
                 <div className="flex flex-col h-[100dvh] bg-zinc-950 text-zinc-200 font-sans overflow-hidden selection:bg-indigo-500/30">
                     
+                    {/* Floating Toast Notification System */}
+                    {toast && (
+                        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] toast-enter">
+                            <div className={`px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 border ${toast.type === 'error' ? 'bg-rose-950/95 border-rose-500/50 text-rose-200 shadow-[0_10px_40px_rgba(225,29,72,0.2)]' : 'bg-zinc-900/95 border-white/10 text-white shadow-[0_10px_40px_rgba(0,0,0,0.5)]'}`}>
+                                {toast.type === 'error' ? <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" /> : <Info className="w-5 h-5 text-indigo-400 shrink-0" />}
+                                <span className="text-sm font-medium leading-tight max-w-xs">{toast.msg}</span>
+                            </div>
+                        </div>
+                    )}
+
                     {welcomeModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
                             <div className="bg-zinc-900 border border-white/10 rounded-2xl p-8 max-w-md w-full shadow-2xl relative overflow-hidden">
+                                <button onClick={() => setWelcomeModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10"><X className="w-5 h-5" /></button>
                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-600"></div>
-                                
                                 <div className="flex items-center space-x-3 mb-6">
-                                    <div className="bg-indigo-500/20 p-3 rounded-xl">
-                                        <Sparkles className="w-6 h-6 text-indigo-400" />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-xl font-bold text-white">Welcome Back!</h2>
-                                        <p className="text-sm text-zinc-400">Audiogram Pro is ready.</p>
-                                    </div>
+                                    <div className="bg-indigo-500/20 p-3 rounded-xl"><Sparkles className="w-6 h-6 text-indigo-400" /></div>
+                                    <div><h2 className="text-xl font-bold text-white">Welcome Back!</h2><p className="text-sm text-zinc-400">Audiogram Pro is ready.</p></div>
                                 </div>
-
                                 {welcomeModal.isNew ? (
                                     <div className="bg-zinc-950 border border-indigo-500/30 rounded-xl p-4 mb-6">
                                         <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 mb-1 block">New Episode Detected</span>
@@ -743,42 +1266,85 @@
                                         <p className="text-sm text-zinc-300">You previously worked on <strong>{welcomeModal.showTitle}</strong>.</p>
                                     </div>
                                 )}
-
                                 <div className="space-y-3">
-                                    <button 
-                                        onClick={() => {
-                                            fetchRSS(welcomeModal.feedUrl);
-                                            setWelcomeModal(null);
-                                        }}
-                                        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-indigo-500/20 flex items-center justify-center"
-                                    >
-                                        {welcomeModal.isNew ? 'Fetch Soundbites for New Episode' : 'Load Previous Podcast Feed'} <ChevronRight className="w-4 h-4 ml-2" />
+                                    <button onClick={() => { fetchRSS(welcomeModal.feedUrl); setWelcomeModal(null); }} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-indigo-500/20 flex items-center justify-center">
+                                        {welcomeModal.isNew ? 'Fetch Latest Episode' : 'Load Previous Podcast Feed'} <ChevronRight className="w-4 h-4 ml-2" />
                                     </button>
-                                    
-                                    <button 
-                                        onClick={() => setWelcomeModal(null)}
-                                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-3 rounded-xl transition-colors"
-                                    >
-                                        Input a different RSS feed
-                                    </button>
+                                    <button onClick={() => setWelcomeModal(null)} className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-3 rounded-xl transition-colors">Input a different RSS feed</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
+                    {limitModal && (
+                        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                            <div className="bg-zinc-900 border border-rose-500/30 rounded-2xl p-8 max-w-md w-full shadow-2xl relative overflow-hidden">
+                                <button onClick={() => setLimitModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10"><X className="w-5 h-5" /></button>
+                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-500 to-orange-500"></div>
+                                <div className="flex items-center space-x-3 mb-6">
+                                    <div className="bg-rose-500/20 p-3 rounded-xl"><Key className="w-6 h-6 text-rose-400" /></div>
+                                    <div><h2 className="text-xl font-bold text-white">Free Limit Reached</h2><p className="text-sm text-zinc-400">Upgrade required to continue.</p></div>
+                                </div>
+                                <div className="bg-zinc-950 border border-white/5 rounded-xl p-4 mb-6">
+                                    <p className="text-sm text-zinc-300">{limitModal}</p>
+                                    <p className="text-xs text-zinc-500 mt-2">Audiogram Pro is free to use, but our proxy servers cost money. Get a highly affordable prepaid pass to unlock unlimited fetches.</p>
+                                </div>
+                                <div className="space-y-3">
+                                    <a href="https://rss-proxy.lovable.app" target="_blank" rel="noopener noreferrer" className="w-full bg-rose-600 hover:bg-rose-500 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20 flex items-center justify-center">
+                                        Get License Key <ChevronRight className="w-4 h-4 ml-2" />
+                                    </a>
+                                    <button onClick={() => setLimitModal(null)} className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-3 rounded-xl transition-colors">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {isSoundbiteModalOpen && selectedEpisode && (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                            <div className="bg-zinc-900 border border-indigo-500/30 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden">
+                                <button onClick={() => setIsSoundbiteModalOpen(false)} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors z-10"><X className="w-5 h-5" /></button>
+                                <h3 className="text-lg font-bold text-white mb-4 flex items-center"><Scissors className="w-5 h-5 mr-2 text-indigo-400"/> Episode Soundbites</h3>
+                                <p className="text-xs text-zinc-400 mb-4">Jump straight to the curated moments provided by the Podcast Creator.</p>
+                                <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                                    {episodeSoundbites.map(bite => (
+                                        <button 
+                                            key={bite.id} 
+                                            onClick={() => handleSoundbiteSelect(bite.start, bite.end)} 
+                                            className="w-full bg-zinc-950 border border-white/5 hover:border-indigo-500/50 p-4 rounded-xl text-left transition-all flex items-center group shadow-inner"
+                                        >
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">{bite.label}</p>
+                                                <p className="text-xs text-zinc-500 font-mono mt-1">{formatTime(bite.start)} - {formatTime(bite.end)}</p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                    {episodeSoundbites.length === 0 && (
+                                        <div className="text-center py-6 border border-dashed border-white/10 rounded-xl">
+                                            <p className="text-sm text-zinc-500">No Podcasting 2.0 soundbite tags found in the RSS XML for this episode.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* App Header (Z-30) */}
                     <header className="h-16 bg-zinc-950/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 sm:px-6 shrink-0 z-30 relative shadow-sm">
                         <div className="flex items-center space-x-3">
                             <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
                                 <Radio className="w-5 h-5 text-white" />
                             </div>
-                            <h1 className="text-xl font-bold text-white tracking-tight hidden sm:block">Audiogram <span className="font-light text-zinc-400">Pro</span></h1>
+                            <h1 className="text-xl font-bold text-white tracking-tight hidden sm:flex items-center">
+                                Audiogram <span className="font-light text-zinc-400 ml-1 mr-2">Pro</span>
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-400 border border-white/5 leading-none">v{TOOL_VERSION}</span>
+                            </h1>
                         </div>
                         
                         <div className="flex items-center space-x-3 sm:space-x-4">
                              {isExporting && (
                                  <div className="flex items-center space-x-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-full animate-pulse">
                                      <div className="w-2 h-2 bg-rose-500 rounded-full shadow-[0_0_8px_rgba(244,63,94,0.8)]"></div>
-                                     <span className="text-xs sm:text-sm font-semibold tracking-wide">Rendering...</span>
+                                     <span className="text-xs sm:text-sm font-semibold tracking-wide">Keep Tab Open...</span>
                                  </div>
                              )}
                             <button 
@@ -791,232 +1357,199 @@
                                 }`}
                             >
                                 {isExporting ? <Pause className="w-4 h-4" /> : <Download className="w-4 h-4" />}
-                                <span className="hidden sm:inline">{isExporting ? 'Cancel' : 'Export Visual'}</span>
+                                <span className="hidden sm:inline">{isExporting ? 'Stop Recording' : 'Export Video'}</span>
                             </button>
                         </div>
                     </header>
 
-                    <div className="flex flex-1 overflow-hidden relative">
+                    {/* Relative Sandbox for Main Content + Sliding Panels */}
+                    <div className="flex-1 overflow-hidden relative flex">
                         
+                        {/* Mobile Backdrop */}
                         {mobilePanel !== 'none' && (
-                            <div className="fixed inset-0 bg-black/80 z-40 lg:hidden backdrop-blur-sm transition-opacity" onClick={() => setMobilePanel('none')} />
+                            <div className="absolute inset-0 bg-black/60 z-30 lg:hidden backdrop-blur-sm transition-opacity" onClick={() => setMobilePanel('none')} />
                         )}
 
-                        <aside className={`fixed lg:relative inset-y-0 left-0 z-50 w-80 max-w-[85vw] bg-zinc-900/90 backdrop-blur-xl border-r border-white/5 flex flex-col shrink-0 overflow-y-auto transform transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none ${
+                        {/* LEFT SIDEBAR (Data Source) */}
+                        <aside className={`absolute lg:relative inset-y-0 left-0 z-40 w-80 max-w-[85vw] bg-zinc-900/95 backdrop-blur-xl border-r border-white/5 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none ${
                             mobilePanel === 'left' ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
                         }`}>
-                            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-zinc-950/50 lg:bg-transparent">
+                            <div className="p-4 border-b border-white/5 flex justify-between items-center bg-zinc-950/50 lg:bg-transparent shrink-0 z-20">
                                 <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 flex items-center">
                                     <LinkIcon className="w-4 h-4 mr-2" /> Data Source
                                 </h2>
                                 <button className="lg:hidden p-1 text-zinc-400 hover:text-white rounded" onClick={() => setMobilePanel('none')}><X className="w-5 h-5" /></button>
                             </div>
                             
-                            {!feedData && (
-                                <div className="p-8 flex flex-col items-center justify-center h-full text-center space-y-4">
-                                    <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/20 mb-2">
-                                        <Radio className="w-8 h-8 text-indigo-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-lg font-bold text-white mb-1">Start Your Project</h3>
-                                        <p className="text-xs text-zinc-400 mb-6 px-4">Paste any valid RSS feed (Audio Podcast, Newsletter, or Blog) to extract content.</p>
-                                    </div>
-                                    <div className="w-full relative group">
-                                        <input 
-                                            type="text" 
-                                            placeholder="https://..." 
-                                            className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 pr-10 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
-                                            value={rssUrl}
-                                            onChange={e => setRssUrl(e.target.value)}
-                                            onKeyDown={e => e.key === 'Enter' && fetchRSS()}
-                                        />
-                                        <button 
-                                            onClick={() => fetchRSS()} 
-                                            disabled={loading || !rssUrl}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white disabled:opacity-50 transition-colors"
-                                        >
-                                            {loading ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" /> : <Search className="w-4 h-4" />}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {feedData && !selectedEpisode && (
-                                <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="p-5 border-b border-white/5 bg-zinc-950/30 relative group">
-                                        <button 
-                                            onClick={() => { setFeedData(null); setRssUrl(''); }}
-                                            className="absolute top-2 right-2 p-1 text-zinc-500 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            title="Clear Feed"
-                                        >
-                                            <X className="w-4 h-4" />
-                                        </button>
-                                        <div className="flex items-center space-x-4 mb-2">
-                                            {feedData.image && <img src={CORS_PROXY(feedData.image)} alt="Cover" className="w-16 h-16 rounded-xl object-cover shadow-lg border border-white/10" />}
+                            <div className="flex-1 overflow-y-auto custom-scrollbar pb-24 lg:pb-6 relative flex flex-col">
+                                {!feedData ? (
+                                    <div className="p-6 flex flex-col space-y-8 flex-1">
+                                        <div className="flex flex-col items-center text-center space-y-4">
+                                            <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/20 mb-2">
+                                                <Radio className="w-8 h-8 text-indigo-400" />
+                                            </div>
                                             <div>
-                                                <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-400 mb-1 block">Data Source</span>
-                                                <h3 className="font-bold text-sm leading-tight text-white line-clamp-2">{feedData.title}</h3>
+                                                <h3 className="text-lg font-bold text-white mb-1">Start Your Project</h3>
+                                                <p className="text-xs text-zinc-400">Paste an Audio Podcast RSS feed to begin.</p>
+                                            </div>
+                                            <div className="w-full relative group mt-2">
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="https://..." 
+                                                    className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 pr-10 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
+                                                    value={rssUrl}
+                                                    onChange={e => setRssUrl(e.target.value)}
+                                                    onKeyDown={e => e.key === 'Enter' && fetchRSS()}
+                                                />
+                                                <button 
+                                                    onClick={() => fetchRSS()} 
+                                                    disabled={loading || !rssUrl}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white disabled:opacity-50 transition-colors"
+                                                >
+                                                    {loading ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" /> : <Search className="w-4 h-4" />}
+                                                </button>
                                             </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-                                        <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-widest px-2 py-1 flex items-center">
-                                            <ListMusic className="w-3.5 h-3.5 mr-2" /> Select Item
-                                        </h4>
-                                        {episodes.map((ep, i) => (
-                                            <button 
-                                                key={i}
-                                                onClick={() => selectEpisode(ep, feedData.title)}
-                                                className="w-full text-left p-3 rounded-xl border border-transparent hover:bg-zinc-800/50 hover:border-white/5 transition-all group flex items-start"
-                                            >
-                                                <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center mr-3 shrink-0 group-hover:bg-indigo-500/20 group-hover:text-indigo-400 text-zinc-500 transition-colors">
-                                                    {ep.audioUrl ? <Play className="w-3.5 h-3.5 ml-0.5" /> : <FileText className="w-3.5 h-3.5" />}
+
+                                        {recentFeeds.length > 0 && (
+                                            <div className="w-full">
+                                                <h4 className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-3 flex items-center">Recent Sources</h4>
+                                                <div className="space-y-2">
+                                                    {recentFeeds.map(feed => (
+                                                        <button 
+                                                            key={feed.id} 
+                                                            onClick={() => { setRssUrl(feed.feedUrl); fetchRSS(feed.feedUrl); }}
+                                                            className="w-full flex items-center p-2 rounded-xl border border-white/5 bg-zinc-950/50 hover:bg-zinc-800 hover:border-white/10 transition-all text-left group"
+                                                        >
+                                                            {feed.imageUrl ? (
+                                                                <img src={CORS_MEDIA_PROXY(feed.imageUrl)} className="w-10 h-10 rounded-lg object-cover mr-3 border border-white/10" />
+                                                            ) : (
+                                                                <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center mr-3 border border-white/10">
+                                                                    <Radio className="w-4 h-4 text-zinc-500" />
+                                                                </div>
+                                                            )}
+                                                            <div className="flex-1 overflow-hidden">
+                                                                <p className="text-xs font-semibold text-white truncate group-hover:text-indigo-300 transition-colors">{feed.showTitle || "Unknown Podcast"}</p>
+                                                                <p className="text-[10px] text-zinc-500 truncate mt-0.5">{feed.episodeTitle}</p>
+                                                            </div>
+                                                        </button>
+                                                    ))}
                                                 </div>
-                                                <span className="text-xs text-zinc-300 font-medium line-clamp-2 mt-1">{ep.title}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedEpisode && (
-                                <div className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                                    <div className="p-4 border-b border-white/5 bg-zinc-950/30">
-                                        <button 
-                                            onClick={() => setSelectedEpisode(null)}
-                                            className="text-[10px] text-zinc-400 hover:text-white flex items-center font-bold uppercase tracking-widest mb-3 transition-colors"
-                                        >
-                                            <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back to List
-                                        </button>
-                                        <div className="flex items-start space-x-3">
-                                            <img src={CORS_PROXY(selectedEpisode.image || feedData?.image)} className="w-10 h-10 rounded-lg object-cover shadow border border-white/10 shrink-0" />
-                                            <p className="text-xs font-medium text-white line-clamp-2 leading-snug">{selectedEpisode.title}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-5 border-b border-white/5">
-                                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 mb-4 flex items-center">
-                                            <Sparkles className="w-3.5 h-3.5 mr-2" /> Media Selection
-                                        </h4>
-                                        
-                                        {!selectedEpisode.audioUrl ? (
-                                             <p className="text-xs text-zinc-500 bg-zinc-950 p-3 rounded-lg border border-white/5">
-                                                 This feed item contains text/images only. You can still design your visual layout and export a static video.
-                                             </p>
-                                        ) : (
-                                            <>
-                                                {mockSoundbites.length > 0 && (
-                                                    <div className="mb-5">
-                                                        <p className="text-xs text-zinc-500 mb-2 font-medium">Suggested Soundbites</p>
-                                                        <div className="space-y-2">
-                                                            {mockSoundbites.map((sb) => (
-                                                                <button 
-                                                                    key={sb.id}
-                                                                    onClick={() => { setTrimStart(sb.start); setTrimEnd(sb.end); audioRef.current.currentTime = sb.start; }}
-                                                                    className="w-full flex items-center justify-between p-2.5 bg-zinc-950 border border-white/5 rounded-xl hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all text-left"
-                                                                >
-                                                                    <span className="text-xs font-medium text-zinc-300">{sb.icon} {sb.label}</span>
-                                                                    <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 px-2 py-1 rounded-md">{formatTime(sb.end - sb.start)}</span>
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                <div>
-                                                    <p className="text-xs text-zinc-500 mb-2 font-medium flex items-center"><Clock className="w-3 h-3 mr-1"/> Manual Length</p>
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label className="text-[10px] text-zinc-500 block mb-1">Start (Seconds)</label>
-                                                            <input 
-                                                                type="number" min="0" max={duration} value={Math.round(trimStart)}
-                                                                onChange={(e) => {
-                                                                    const val = Number(e.target.value);
-                                                                    if (val < trimEnd) { setTrimStart(val); audioRef.current.currentTime = val; }
-                                                                }}
-                                                                className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-xs text-white focus:border-indigo-500 outline-none"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-[10px] text-zinc-500 block mb-1">Duration (Seconds)</label>
-                                                            <input 
-                                                                type="number" min="1" max="600" value={Math.round(trimEnd - trimStart)}
-                                                                onChange={(e) => {
-                                                                    const val = Number(e.target.value);
-                                                                    if (trimStart + val <= duration) setTrimEnd(trimStart + val);
-                                                                }}
-                                                                className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-xs text-white focus:border-indigo-500 outline-none"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </>
+                                            </div>
                                         )}
-                                    </div>
 
-                                    <div className="p-5 pb-20 lg:pb-5">
-                                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-3 flex items-center">
-                                            <Plus className="w-3.5 h-3.5 mr-2" /> Add Visual Elements
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <button onClick={() => addElement('text')} className="flex flex-col items-center p-3 rounded-xl bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group">
-                                                <Type className="w-5 h-5 mb-1.5 text-zinc-500 group-hover:text-indigo-400"/>
-                                                <span className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-200">Text</span>
-                                            </button>
-                                            <button onClick={() => addElement('image')} className="flex flex-col items-center p-3 rounded-xl bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group">
-                                                <ImageIcon className="w-5 h-5 mb-1.5 text-zinc-500 group-hover:text-indigo-400"/>
-                                                <span className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-200">Image</span>
-                                            </button>
-                                            <button onClick={() => addElement('waveform')} className="flex flex-col items-center p-3 rounded-xl bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group">
-                                                <Activity className="w-5 h-5 mb-1.5 text-zinc-500 group-hover:text-indigo-400"/>
-                                                <span className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-200">Waveform</span>
-                                            </button>
-                                            <button onClick={() => addElement('progress')} className="flex flex-col items-center p-3 rounded-xl bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group">
-                                                <Move className="w-5 h-5 mb-1.5 text-zinc-500 group-hover:text-indigo-400"/>
-                                                <span className="text-[10px] font-medium text-zinc-400 group-hover:text-zinc-200">Progress</span>
-                                            </button>
+                                        <div className="w-full pt-6 border-t border-white/5 text-left mt-auto">
+                                            <h4 className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-2 flex items-center"><Key className="w-3 h-3 mr-1"/> RSS Proxy Settings</h4>
+                                            <p className="text-xs text-zinc-500 mb-3">Free tier limited to 3 daily fetches. Enter a Pro Key to unlock unlimited.</p>
+                                            <input 
+                                                type="password" 
+                                                placeholder="Paste License Key..." 
+                                                className="w-full bg-zinc-950/50 border border-white/5 rounded-lg p-2.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500 transition-all"
+                                                value={licenseKey}
+                                                onChange={e => handleSaveLicense(e.target.value)}
+                                            />
                                         </div>
                                     </div>
-                                </div>
-                            )}
+                                ) : (
+                                    <>
+                                        <div className="p-4 border-b border-white/5 bg-zinc-950/30 relative group shrink-0">
+                                            <button 
+                                                onClick={() => { setFeedData(null); setRssUrl(''); setSelectedEpisode(null); }}
+                                                className="absolute top-2 right-2 p-1 text-zinc-500 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-zinc-900 rounded"
+                                                title="Clear Feed"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                            <div className="flex items-center space-x-4 mb-1">
+                                                {feedData.image && <img src={CORS_MEDIA_PROXY(feedData.image)} alt="Cover" className="w-12 h-12 rounded-xl object-cover shadow-lg border border-white/10 shrink-0" />}
+                                                <div className="overflow-hidden">
+                                                    <span className="text-[9px] uppercase font-bold tracking-widest text-indigo-400 mb-0.5 block">Active Source</span>
+                                                    <h3 className="font-bold text-sm text-white truncate">{feedData.title}</h3>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 border-b border-white/5 shrink-0 bg-zinc-900/50">
+                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-2 flex items-center">
+                                                <Plus className="w-3.5 h-3.5 mr-2" /> Add Visual Elements
+                                            </h4>
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <button onClick={() => addElement('text')} className="flex flex-col items-center p-2 rounded-lg bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group" title="Add Text">
+                                                    <Type className="w-4 h-4 text-zinc-400 group-hover:text-indigo-400"/>
+                                                </button>
+                                                <button onClick={() => addElement('image')} className="flex flex-col items-center p-2 rounded-lg bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group" title="Add Image">
+                                                    <ImageIcon className="w-4 h-4 text-zinc-400 group-hover:text-indigo-400"/>
+                                                </button>
+                                                <button onClick={() => addElement('waveform')} className="flex flex-col items-center p-2 rounded-lg bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group" title="Add Waveform">
+                                                    <Activity className="w-4 h-4 text-zinc-400 group-hover:text-indigo-400"/>
+                                                </button>
+                                                <button onClick={() => addElement('progress')} className="flex flex-col items-center p-2 rounded-lg bg-zinc-950 border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group" title="Add Progress">
+                                                    <Move className="w-4 h-4 text-zinc-400 group-hover:text-indigo-400"/>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="p-2 pb-6">
+                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 px-2 pt-2">
+                                                Episodes ({episodes.length})
+                                            </h4>
+                                            <div className="space-y-1">
+                                                {episodes.map((ep, i) => (
+                                                    <button 
+                                                        key={i}
+                                                        onClick={() => { selectEpisode(ep, feedData.title, feedData.image); setMobilePanel('none'); }}
+                                                        className={`w-full text-left p-3 rounded-xl border transition-all flex items-start ${
+                                                            selectedEpisode === ep ? 'bg-indigo-500/10 border-indigo-500/30' : 'border-transparent hover:bg-zinc-800/50 hover:border-white/5'
+                                                        }`}
+                                                    >
+                                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center mr-3 shrink-0 transition-colors ${selectedEpisode === ep ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>
+                                                            {ep.audioUrl ? <Play className="w-3 h-3 ml-0.5" /> : <FileText className="w-3 h-3" />}
+                                                        </div>
+                                                        <span className={`text-xs font-medium line-clamp-2 mt-1 ${selectedEpisode === ep ? 'text-indigo-300' : 'text-zinc-300'}`}>
+                                                            {ep.title}
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         </aside>
 
-                        <main className="flex-1 flex flex-col relative w-full h-full bg-zinc-950">
-                            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex bg-zinc-900/80 backdrop-blur-md p-1.5 rounded-full border border-white/10 shadow-lg">
-                                 {Object.entries(FORMATS).map(([key, fmt]) => {
-                                     const Icon = fmt.icon;
-                                     const isActive = currentFormat === key;
-                                     return (
-                                         <button 
-                                             key={key} onClick={() => changeFormat(key)}
-                                             className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                                                 isActive ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                                             }`}
-                                         >
-                                             <Icon className="w-4 h-4" /> <span>{fmt.name}</span>
-                                         </button>
-                                     )
-                                 })}
-                            </div>
-
+                        {/* CENTER (Canvas Area + Hybrid Timeline) */}
+                        <main className="flex-1 flex flex-col relative min-w-0 bg-zinc-950">
+                            
+                            {/* Canvas Sandbox */}
                             <div className="flex-1 overflow-auto flex items-center justify-center p-4 sm:p-12 relative ui-dot-grid">
-                                <div 
-                                    className="relative shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-out max-h-full rounded-sm overflow-hidden"
-                                    style={{ 
-                                        width: '100%', maxWidth: currentFormat === 'PORTRAIT' ? '400px' : '800px', 
-                                        aspectRatio: `${sceneRef.current.width} / ${sceneRef.current.height}` 
-                                    }}
-                                >
+                                
+                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex bg-zinc-900/80 backdrop-blur-md p-1.5 rounded-full border border-white/10 shadow-lg">
+                                     {Object.entries(FORMATS).map(([key, fmt]) => {
+                                         const Icon = fmt.icon;
+                                         const isActive = currentFormat === key;
+                                         return (
+                                             <button key={key} onClick={() => changeFormat(key)} className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${ isActive ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' }`}>
+                                                 <Icon className="w-4 h-4" /> <span className="hidden sm:inline">{fmt.name}</span>
+                                             </button>
+                                         )
+                                     })}
+                                </div>
+
+                                {selectedEpisode?.audioUrl && episodeSoundbites.length > 0 && (
+                                    <button 
+                                        onClick={() => setIsSoundbiteModalOpen(true)} 
+                                        className="absolute top-4 right-4 z-30 bg-zinc-900/80 backdrop-blur-md border border-indigo-500/30 text-indigo-300 px-4 py-2.5 rounded-full shadow-lg hover:bg-indigo-500/20 hover:text-indigo-200 transition-all flex items-center shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:scale-105 active:scale-95"
+                                    >
+                                        <Scissors className="w-4 h-4 mr-2" />
+                                        <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Soundbites</span>
+                                    </button>
+                                )}
+
+                                <div className="relative shadow-2xl ring-1 ring-white/10 transition-all duration-500 ease-out max-h-full rounded-sm overflow-hidden" style={{ width: '100%', maxWidth: currentFormat === 'PORTRAIT' ? '400px' : '800px', aspectRatio: `${sceneRef.current.width} / ${sceneRef.current.height}` }}>
                                     <canvas 
-                                        ref={canvasRef}
-                                        width={sceneRef.current.width}
-                                        height={sceneRef.current.height}
+                                        ref={canvasRef} width={sceneRef.current.width} height={sceneRef.current.height}
                                         className={`w-full h-full object-contain cursor-crosshair bg-checkerboard touch-none ${interactionState.type ? 'cursor-grabbing' : ''}`}
-                                        onPointerDown={handlePointerDown}
-                                        onPointerMove={handlePointerMove}
-                                        onPointerUp={handlePointerUp}
-                                        onPointerLeave={handlePointerUp}
+                                        onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
                                     />
                                     {!selectedEpisode && (
                                         <div className="absolute inset-0 bg-zinc-950/60 backdrop-blur-md flex items-center justify-center flex-col pointer-events-none p-4 text-center">
@@ -1024,261 +1557,382 @@
                                                 <LinkIcon className="w-8 h-8 text-indigo-400" />
                                             </div>
                                             <h3 className="text-white font-bold text-lg mb-1">Waiting for Source</h3>
-                                            <p className="text-zinc-400 text-sm max-w-xs">Load a valid RSS feed in the sidebar to begin generating your visual.</p>
+                                            <p className="text-zinc-400 text-sm max-w-xs">Load an Audio Podcast in the sidebar to begin generating.</p>
                                         </div>
                                     )}
                                 </div>
                             </div>
 
-                            <div className={`absolute lg:relative bottom-0 left-0 right-0 z-40 lg:z-10 bg-zinc-900/95 backdrop-blur-xl border-t border-white/5 p-4 sm:p-5 pb-20 lg:pb-5 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out ${
-                                mobilePanel === 'timeline' ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'
-                            }`}>
-                                <button className="absolute top-4 right-4 lg:hidden p-1 text-zinc-400 hover:text-white rounded" onClick={() => setMobilePanel('none')}><X className="w-5 h-5" /></button>
-                                
-                                <div className="flex items-center justify-between mb-4 pr-8 lg:pr-0">
+                            {/* Hybrid Timeline: Slides up on mobile, Static bottom on Desktop */}
+                            <div className={`
+                                absolute lg:relative bottom-0 left-0 right-0 z-40 lg:z-10
+                                flex flex-col shrink-0
+                                transform transition-transform duration-300 ease-in-out
+                                ${mobilePanel === 'timeline' ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
+                                bg-zinc-900/95 border-t border-white/5 p-4 sm:p-5 shadow-[0_-5px_20px_rgba(0,0,0,0.5)] lg:shadow-none
+                            `}>
+                                <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center space-x-4">
-                                        <button 
-                                            onClick={togglePlay}
-                                            disabled={!selectedEpisode?.audioUrl}
-                                            className="w-12 h-12 bg-white hover:bg-zinc-200 text-zinc-900 rounded-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-105 active:scale-95 shadow-lg"
-                                        >
-                                            {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
+                                        <button onClick={() => togglePlay(false)} disabled={!selectedEpisode?.audioUrl || audioError} className="w-10 h-10 sm:w-12 sm:h-12 bg-white hover:bg-zinc-200 text-zinc-900 rounded-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-105 active:scale-95 shadow-lg shrink-0">
+                                            {isPlaying ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 ml-1" />}
                                         </button>
                                         <div className="flex flex-col">
-                                            <span className="text-white font-bold text-sm tracking-wide">
-                                                {new Date(currentTime * 1000).toISOString().substr(14, 5)} <span className="text-zinc-500 font-normal">/ {new Date(duration * 1000).toISOString().substr(14, 5)}</span>
-                                            </span>
-                                            <span className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest mt-0.5">Media Trimmer</span>
+                                            <span className="text-white font-bold text-xs sm:text-sm tracking-wide">{new Date(currentTime * 1000).toISOString().substr(14, 5)} <span className="text-zinc-500 font-normal">/ {new Date(duration * 1000).toISOString().substr(14, 5)}</span></span>
+                                            <div className="flex items-center space-x-2 mt-0.5">
+                                                <span className="text-indigo-400 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Media Trimmer</span>
+                                                <button 
+                                                    onClick={() => setIgnoreTrim(!ignoreTrim)}
+                                                    className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] uppercase font-bold tracking-wider transition-colors ${ignoreTrim ? 'bg-indigo-500/20 text-indigo-300' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'}`}
+                                                    title="Toggle to export the full audio or respect the trim boundaries."
+                                                >
+                                                    {ignoreTrim ? <Unlock className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                                                    <span>{ignoreTrim ? 'Trim Ignored' : 'Trim Locked'}</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
+                                    <button className="lg:hidden p-1 text-zinc-400 hover:text-white rounded bg-zinc-800/50" onClick={() => setMobilePanel('none')}><X className="w-5 h-5" /></button>
                                 </div>
 
-                                <div className={`relative h-14 bg-zinc-950 rounded-xl border border-white/10 overflow-hidden group select-none mt-1 shadow-inner ${!selectedEpisode?.audioUrl ? 'opacity-50 pointer-events-none' : ''}`}>
-                                    <div className="absolute inset-0 opacity-10 flex items-center justify-between px-1 pointer-events-none">
-                                         {Array.from({length: 120}).map((_, i) => (
-                                             <div key={i} className="w-1 bg-white rounded-full" style={{ height: `${Math.random() * 80 + 10}%` }}></div>
-                                         ))}
-                                    </div>
-                                    
-                                    <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-20 pointer-events-none shadow-[0_0_10px_rgba(244,63,94,0.8)]" style={{ left: `${(currentTime / duration) * 100}%` }}>
-                                        <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 bg-rose-500 rounded-full border-2 border-white"></div>
-                                    </div>
+                                <div 
+                                    ref={trimmerRef} 
+                                    onPointerDown={(e) => {
+                                        // Allow jumping the playhead by tapping the background
+                                        if (e.target === trimmerRef.current || e.target.classList.contains('trim-bg')) {
+                                            const rect = trimmerRef.current.getBoundingClientRect();
+                                            const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+                                            let percent = (clientX - rect.left) / rect.width;
+                                            percent = Math.max(0, Math.min(1, percent));
+                                            const newTime = percent * duration;
+                                            audioRef.current.currentTime = newTime;
+                                            setCurrentTime(newTime);
+                                            handleTrimPointerDown(e, 'playhead');
+                                        }
+                                    }}
+                                    className={`trim-bg relative h-12 sm:h-14 bg-zinc-950 rounded-xl border border-white/10 overflow-visible group select-none mt-1 shadow-inner touch-none cursor-pointer ${(!selectedEpisode?.audioUrl || audioError) ? 'opacity-50 pointer-events-none' : ''}`}
+                                >
+                                    {audioLoading && (
+                                        <div className="absolute inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center rounded-xl pointer-events-none">
+                                            <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin mr-2" />
+                                            <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Loading Audio...</span>
+                                        </div>
+                                    )}
+                                    {audioError && !audioLoading && (
+                                        <div className="absolute inset-0 z-50 bg-rose-950/80 backdrop-blur-sm flex items-center justify-center rounded-xl border border-rose-500/50 pointer-events-none">
+                                            <Info className="w-4 h-4 text-rose-400 mr-2" />
+                                            <span className="text-xs font-bold text-rose-400 uppercase tracking-widest">Audio Blocked by CORS</span>
+                                        </div>
+                                    )}
 
-                                    <div 
-                                        className="absolute top-0 bottom-0 bg-indigo-500/20 border-x-2 border-indigo-500 z-10"
-                                        style={{ left: `${(trimStart / duration) * 100}%`, width: `${((trimEnd - trimStart) / duration) * 100}%` }}
-                                    >
-                                         <div className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-8 bg-indigo-500 rounded-md flex items-center justify-center cursor-ew-resize shadow-md">
-                                             <div className="w-0.5 h-4 bg-white/60 rounded-full"></div>
-                                         </div>
-                                         <div className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-8 bg-indigo-500 rounded-md flex items-center justify-center cursor-ew-resize shadow-md">
-                                             <div className="w-0.5 h-4 bg-white/60 rounded-full"></div>
-                                         </div>
+                                    <div className="trim-bg absolute inset-0 opacity-10 flex items-center justify-between px-1 pointer-events-none overflow-hidden rounded-xl">
+                                         {Array.from({length: 120}).map((_, i) => (<div key={i} className="w-1 bg-white rounded-full pointer-events-none" style={{ height: `${Math.random() * 80 + 10}%` }}></div>))}
                                     </div>
                                     
-                                    <input type="range" min={0} max={duration} step={0.1} value={trimStart} onChange={e => { const v = parseFloat(e.target.value); if (v < trimEnd - 1) setTrimStart(v); }} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-30" />
-                                    <input type="range" min={0} max={duration} step={0.1} value={trimEnd} onChange={e => { const v = parseFloat(e.target.value); if (v > trimStart + 1) setTrimEnd(v); }} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-30" />
-                                </div>
-                                <div className="flex justify-between text-[10px] text-zinc-500 mt-2 font-mono uppercase tracking-widest font-semibold">
-                                    <span>{new Date(trimStart * 1000).toISOString().substr(14, 5)}</span>
-                                    <span>Selection: {(trimEnd - trimStart).toFixed(1)}s</span>
-                                    <span>{new Date(trimEnd * 1000).toISOString().substr(14, 5)}</span>
+                                    {/* Playhead */}
+                                    <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 pointer-events-none shadow-[0_0_10px_rgba(244,63,94,0.8)]" style={{ left: `${currentPercent}%` }}>
+                                        <div className="absolute -top-1 -left-1 sm:-left-1.5 w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-rose-500 rounded-full border-2 border-white pointer-events-none"></div>
+                                    </div>
+                                    
+                                    {/* Custom Pointer-driven Trimmer Handle UI */}
+                                    <div className={`absolute top-0 bottom-0 border-x-2 border-indigo-500 z-10 ${ignoreTrim ? 'bg-indigo-500/5' : 'bg-indigo-500/20'}`} style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}>
+                                         <div 
+                                            onPointerDown={(e) => handleTrimPointerDown(e, 'start')}
+                                            className="absolute -left-4 top-1/2 -translate-y-1/2 w-8 h-10 bg-indigo-500 rounded-md flex items-center justify-center cursor-ew-resize shadow-md touch-none hover:bg-indigo-400 active:bg-indigo-600 transition-colors z-20"
+                                         >
+                                            <div className="w-0.5 h-4 bg-white/60 rounded-full pointer-events-none"></div>
+                                         </div>
+                                         <div 
+                                            onPointerDown={(e) => handleTrimPointerDown(e, 'end')}
+                                            className="absolute -right-4 top-1/2 -translate-y-1/2 w-8 h-10 bg-indigo-500 rounded-md flex items-center justify-center cursor-ew-resize shadow-md touch-none hover:bg-indigo-400 active:bg-indigo-600 transition-colors z-20"
+                                         >
+                                            <div className="w-0.5 h-4 bg-white/60 rounded-full pointer-events-none"></div>
+                                         </div>
+                                    </div>
                                 </div>
                             </div>
                         </main>
 
-                        <aside className={`fixed lg:relative inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-zinc-900/90 backdrop-blur-xl border-l border-white/5 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none ${
-                            mobilePanel === 'right' ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+                        {/* RIGHT SIDEBAR (Properties & Modules) */}
+                        <aside className={`absolute lg:relative inset-y-0 right-0 z-40 w-80 max-w-[85vw] bg-zinc-900/95 backdrop-blur-xl border-l border-white/5 flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none ${
+                            mobilePanel === 'right' || mobilePanel === 'modules' ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
                         }`}>
-                            <div className="flex-1 flex flex-col overflow-hidden">
+                            {/* Panel Tab Navigation */}
+                            <div className="flex border-b border-white/5 bg-zinc-950/50 shrink-0 z-20">
+                                <button 
+                                    onClick={() => { setRightTab('properties'); setMobilePanel('right'); }} 
+                                    className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest flex items-center justify-center transition-colors ${rightTab === 'properties' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Settings className="w-4 h-4 mr-2" /> Properties
+                                </button>
+                                <button 
+                                    onClick={() => { setRightTab('modules'); setMobilePanel('modules'); }} 
+                                    className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest flex items-center justify-center transition-colors ${rightTab === 'modules' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Puzzle className="w-4 h-4 mr-2" /> Modules
+                                </button>
+                                <button className="lg:hidden p-4 text-zinc-400 hover:text-white" onClick={() => setMobilePanel('none')}><X className="w-5 h-5" /></button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto custom-scrollbar pb-24 lg:pb-6 relative flex flex-col">
                                 
-                                <div className="flex-1 overflow-y-auto custom-scrollbar border-b border-white/5 pb-4">
-                                    <div className="sticky top-0 bg-zinc-900/95 backdrop-blur z-10 p-4 border-b border-white/5 flex justify-between items-center">
-                                        <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 flex items-center">
-                                            <Settings className="w-4 h-4 mr-2" /> Properties
-                                        </h2>
-                                        <button className="lg:hidden p-1 text-zinc-400 hover:text-white rounded" onClick={() => setMobilePanel('none')}><X className="w-5 h-5" /></button>
-                                    </div>
+                                {/* PROPERTIES TAB */}
+                                {rightTab === 'properties' && (
+                                    <>
+                                        {!selectedEl ? (
+                                            <div className="p-6 text-center flex flex-col items-center text-zinc-500">
+                                                <div className="w-16 h-16 rounded-2xl bg-zinc-800/50 flex items-center justify-center mb-4">
+                                                        <Layers className="w-8 h-8 opacity-50" />
+                                                </div>
+                                                <p className="text-sm font-medium">Select an element to configure it.</p>
+                                                
+                                                <div className="mt-8 w-full text-left bg-zinc-950/50 p-4 rounded-xl border border-white/5 mb-6">
+                                                    <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-3">Scene Globals</h3>
+                                                    <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Background Color</label>
+                                                    <div className="flex items-center space-x-2 mb-6">
+                                                        <input type="color" value={sceneRef.current.background} onChange={e => { sceneRef.current.background = e.target.value; forceUpdate(); }} className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"/>
+                                                        <input type="text" value={sceneRef.current.background} onChange={e => { sceneRef.current.background = e.target.value; forceUpdate(); }} className="flex-1 bg-zinc-900 border border-white/10 rounded-lg p-2.5 text-sm text-white uppercase font-mono shadow-inner focus:outline-none focus:border-indigo-500"/>
+                                                    </div>
 
-                                    {!selectedEl ? (
-                                        <div className="p-8 text-center flex flex-col items-center text-zinc-500">
-                                            <div className="w-16 h-16 rounded-2xl bg-zinc-800/50 flex items-center justify-center mb-4">
-                                                 <Layers className="w-8 h-8 opacity-50" />
-                                            </div>
-                                            <p className="text-sm font-medium">Select an element on the canvas to configure it.</p>
-                                            
-                                            <div className="mt-10 w-full text-left bg-zinc-950/50 p-4 rounded-xl border border-white/5">
-                                                <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-3">Scene Globals</h3>
-                                                <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Background Color</label>
-                                                <div className="flex items-center space-x-2">
-                                                    <input type="color" value={sceneRef.current.background} onChange={e => { sceneRef.current.background = e.target.value; forceUpdate(); }} className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"/>
-                                                    <input type="text" value={sceneRef.current.background} onChange={e => { sceneRef.current.background = e.target.value; forceUpdate(); }} className="flex-1 bg-zinc-900 border border-white/10 rounded-lg p-2.5 text-sm text-white uppercase font-mono shadow-inner focus:outline-none focus:border-indigo-500"/>
+                                                    <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-3 border-t border-white/5 pt-4">Custom Templates</h3>
+                                                    <div className="flex space-x-2 mb-4">
+                                                        <input type="text" placeholder="Template Name" value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)} className="flex-1 bg-zinc-900 border border-white/10 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-indigo-500" />
+                                                        <button onClick={handleSaveCustomTemplate} className="bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-lg transition-colors" title="Save Layout"><Save className="w-4 h-4" /></button>
+                                                    </div>
+
+                                                    {savedTemplates.length > 0 && (
+                                                        <div className="space-y-2 mt-2">
+                                                            <label className="block text-xs text-zinc-500 font-medium">My Saved Templates</label>
+                                                            {savedTemplates.map(tmpl => (
+                                                                <div key={tmpl.id} className="flex justify-between items-center bg-zinc-900 border border-white/5 p-2 rounded-lg">
+                                                                    <button onClick={() => loadTemplate(tmpl)} className="flex-1 text-left text-xs text-zinc-300 hover:text-white truncate flex items-center">
+                                                                        <LayoutTemplate className="w-3 h-3 mr-2 text-indigo-400" /> {tmpl.name}
+                                                                    </button>
+                                                                    <button onClick={() => deleteTemplate(tmpl.id)} className="p-1 text-zinc-500 hover:text-rose-400"><Trash2 className="w-3 h-3" /></button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 space-y-5">
-                                            <div className="bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs p-3 rounded-lg flex items-start">
-                                                <Monitor className="w-4 h-4 mr-2 shrink-0 mt-0.5" />
-                                                <p><strong>Inline editing active.</strong> Drag the element or its bottom-right corner directly on the canvas to reposition and resize.</p>
-                                            </div>
+                                        ) : (
+                                            <div className="p-4 space-y-5">
+                                                <div className="bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs p-3 rounded-lg flex items-start">
+                                                    <Monitor className="w-4 h-4 mr-2 shrink-0 mt-0.5" />
+                                                    <p><strong>Inline editing active.</strong> Drag the element or use the offset corner handle to resize.</p>
+                                                </div>
 
-                                            {selectedEl.type === 'text' && (
-                                                <>
+                                                {selectedEl.type === 'text' && (
+                                                    <>
+                                                        <div>
+                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Content</label>
+                                                            <textarea value={selectedEl.text} onChange={e => updateElement(selectedEl.id, {text: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 text-sm text-white resize-none shadow-inner focus:outline-none focus:border-indigo-500 transition-colors" rows={3} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium flex justify-between"><span>Font Family</span></label>
+                                                            <select value={selectedEl.font} onChange={e => { const font = e.target.value; saveFont(font); updateElement(selectedEl.id, {font}); }} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                                                                {[...new Set([...POPULAR_FONTS, ...savedFonts])].map(f => (<option key={f} value={f} style={{fontFamily: f}}>{f}</option>))}
+                                                            </select>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Font Weight</label>
+                                                                <select value={selectedEl.weight} onChange={e => updateElement(selectedEl.id, {weight: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white">
+                                                                    <option value="400">Regular</option><option value="600">Semi-Bold</option><option value="800">Extra-Bold</option>
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Alignment</label>
+                                                                <select value={selectedEl.align} onChange={e => updateElement(selectedEl.id, {align: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white">
+                                                                    <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                )}
+
+                                                {selectedEl.type === 'image' && (
+                                                    <>
+                                                        <div>
+                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Image Source</label>
+                                                            <select 
+                                                                value={selectedEl.sourceType || 'custom'} 
+                                                                onChange={e => {
+                                                                    const type = e.target.value;
+                                                                    let newSrc = selectedEl.src;
+                                                                    if (type === 'episode' && selectedEpisode?.image) newSrc = selectedEpisode.image;
+                                                                    if (type === 'show' && feedData?.image) newSrc = feedData.image;
+                                                                    updateElement(selectedEl.id, { sourceType: type, src: newSrc });
+                                                                }}
+                                                                className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 mb-3"
+                                                            >
+                                                                <option value="episode">Episode Cover Art</option>
+                                                                <option value="show">Podcast/Show Cover Art</option>
+                                                                <option value="custom">Custom URL</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Image URL</label>
+                                                            <input type="text" value={selectedEl.src} onChange={e => updateElement(selectedEl.id, {src: e.target.value, sourceType: 'custom'})} className={`w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-opacity ${selectedEl.sourceType !== 'custom' ? 'opacity-50' : ''}`} placeholder="https://..." />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium flex justify-between"><span>Corner Radius</span><span className="text-zinc-500 font-mono">{selectedEl.radius}px</span></label>
+                                                            <input type="range" min="0" max="1000" value={selectedEl.radius || 0} onChange={e => updateElement(selectedEl.id, {radius: Number(e.target.value)})} className="w-full accent-indigo-500" />
+                                                        </div>
+                                                    </>
+                                                )}
+
+                                                {selectedEl.type === 'waveform' && (
                                                     <div>
-                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Content</label>
-                                                        <textarea 
-                                                            value={selectedEl.text} 
-                                                            onChange={e => updateElement(selectedEl.id, {text: e.target.value})}
-                                                            className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 text-sm text-white resize-none shadow-inner focus:outline-none focus:border-indigo-500 transition-colors"
-                                                            rows={3}
-                                                        />
-                                                    </div>
-                                                    
-                                                    <div>
-                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium flex justify-between">
-                                                            <span>Font Family</span>
-                                                        </label>
-                                                        <select 
-                                                            value={selectedEl.font} 
-                                                            onChange={e => { const font = e.target.value; saveFont(font); updateElement(selectedEl.id, {font}); }}
-                                                            className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                                                        >
-                                                            {[...new Set([...POPULAR_FONTS, ...savedFonts])].map(f => (
-                                                                <option key={f} value={f} style={{fontFamily: f}}>{f}</option>
+                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Visual Style</label>
+                                                        <select value={selectedEl.style} onChange={e => updateElement(selectedEl.id, {style: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white">
+                                                            <option value="bars">Classic Bottom Bars</option>
+                                                            <option value="bars_mirrored">Center Mirrored Bars</option>
+                                                            <option value="circle">Radial Circle</option>
+                                                            <option value="line">Pulse Line</option>
+                                                            {/* Dynamic Extension Waveforms */}
+                                                            {Object.keys(window.AudiogramAPI?.waveforms || {}).map(k => (
+                                                                <option key={k} value={k}>{k}</option>
                                                             ))}
                                                         </select>
                                                     </div>
+                                                )}
 
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Font Weight</label>
-                                                            <select value={selectedEl.weight} onChange={e => updateElement(selectedEl.id, {weight: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white">
-                                                                <option value="400">Regular</option>
-                                                                <option value="600">Semi-Bold</option>
-                                                                <option value="800">Extra-Bold</option>
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Alignment</label>
-                                                            <select value={selectedEl.align} onChange={e => updateElement(selectedEl.id, {align: e.target.value})} className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white">
-                                                                <option value="left">Left</option>
-                                                                <option value="center">Center</option>
-                                                                <option value="right">Right</option>
-                                                            </select>
+                                                {(selectedEl.type === 'text' || selectedEl.type === 'waveform' || selectedEl.type === 'progress') && (
+                                                    <div>
+                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Color</label>
+                                                        <div className="flex items-center space-x-2">
+                                                            <input type="color" value={selectedEl.color} onChange={e => updateElement(selectedEl.id, {color: e.target.value})} className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"/>
+                                                            <input type="text" value={selectedEl.color} onChange={e => updateElement(selectedEl.id, {color: e.target.value})} className="flex-1 bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white uppercase font-mono shadow-inner"/>
                                                         </div>
                                                     </div>
-                                                </>
-                                            )}
+                                                )}
+                                            </div>
+                                        )}
+                                        
+                                        <div className="border-t border-white/5 bg-zinc-950 shrink-0 flex flex-col mt-auto">
+                                            <div className="p-3 px-4 border-b border-white/5 flex justify-between items-center bg-zinc-900/50">
+                                                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 flex items-center">
+                                                    <Layers className="w-4 h-4 mr-2" /> Layers
+                                                </h2>
+                                            </div>
+                                            <div className="p-2 space-y-1">
+                                                 {layersUI.map((el) => (
+                                                     <div key={el.id} onClick={() => setSelectedId(el.id)} className={`flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer border transition-colors ${selectedId === el.id ? 'bg-indigo-600/20 border-indigo-500/50 text-white' : 'bg-zinc-900 border-white/5 text-zinc-400 hover:bg-zinc-800'}`}>
+                                                         <div className="flex items-center space-x-3 truncate">
+                                                                <div className="text-zinc-500">
+                                                                    {el.type === 'text' && <Type className="w-4 h-4" />}
+                                                                    {el.type === 'image' && <ImageIcon className="w-4 h-4" />}
+                                                                    {el.type === 'waveform' && <Activity className="w-4 h-4" />}
+                                                                    {el.type === 'progress' && <Move className="w-4 h-4" />}
+                                                                </div>
+                                                                <span className="truncate font-medium text-xs">{el.text || el.id.split('-')[0].toUpperCase()}</span>
+                                                         </div>
+                                                         <div className="flex items-center space-x-1">
+                                                             <div className="flex flex-col mr-2">
+                                                                 <button onClick={(e) => { e.stopPropagation(); moveLayer(el.originalIndex, 'up'); }} disabled={el.originalIndex === sceneRef.current.elements.length - 1} className="text-zinc-500 hover:text-white disabled:opacity-30"><ChevronUp className="w-3 h-3"/></button>
+                                                                 <button onClick={(e) => { e.stopPropagation(); moveLayer(el.originalIndex, 'down'); }} disabled={el.originalIndex === 0} className="text-zinc-500 hover:text-white disabled:opacity-30"><ChevronDown className="w-3 h-3"/></button>
+                                                             </div>
+                                                             <button onClick={(e) => { e.stopPropagation(); removeElement(el.id); }} className="p-1.5 hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 rounded-md transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                         </div>
+                                                     </div>
+                                                 ))}
+                                                 {layersUI.length === 0 && <div className="text-center p-4 text-xs text-zinc-600 font-medium mt-4">No layers in scene.</div>}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
-                                            {selectedEl.type === 'image' && (
-                                                <>
-                                                    <div>
-                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Image URL</label>
-                                                        <input 
-                                                            type="text" value={selectedEl.src} onChange={e => updateElement(selectedEl.id, {src: e.target.value})}
-                                                            className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                                                            placeholder="https://..."
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-zinc-400 mb-1.5 font-medium flex justify-between">
-                                                            <span>Corner Radius</span>
-                                                            <span className="text-zinc-500 font-mono">{selectedEl.radius}px</span>
-                                                        </label>
-                                                        <input 
-                                                            type="range" min="0" max="1000" value={selectedEl.radius || 0} 
-                                                            onChange={e => updateElement(selectedEl.id, {radius: Number(e.target.value)})}
-                                                            className="w-full accent-indigo-500"
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
+                                {/* MODULES TAB */}
+                                {rightTab === 'modules' && (
+                                    <div className="p-6 flex flex-col space-y-6">
+                                        <div className="bg-gradient-to-br from-indigo-500/10 to-purple-600/10 border border-indigo-500/20 rounded-xl p-5 shadow-inner">
+                                            <div className="flex items-center space-x-3 mb-3">
+                                                <Plug className="w-6 h-6 text-indigo-400" />
+                                                <h3 className="text-sm font-bold text-white uppercase tracking-widest">Extension Ecosystem</h3>
+                                            </div>
+                                            <p className="text-xs text-zinc-300 leading-relaxed">
+                                                Modules instantly expand Audiogram Pro. They can inject new <strong>Waveform Visualizers</strong>, add custom <strong>Editing Tools</strong>, or automate layouts without requiring a page refresh. All modules are executed client-side and saved locally.
+                                            </p>
+                                        </div>
 
-                                            {selectedEl.type === 'waveform' && (
-                                                <div>
-                                                    <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Visual Style</label>
-                                                    <select 
-                                                        value={selectedEl.style} onChange={e => updateElement(selectedEl.id, {style: e.target.value})}
-                                                        className="w-full bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white"
-                                                    >
-                                                        <option value="bars">Classic Bottom Bars</option>
-                                                        <option value="bars_mirrored">Center Mirrored Bars</option>
-                                                    </select>
+                                        <button 
+                                            onClick={fetchExtensions}
+                                            disabled={extensionLoading}
+                                            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(79,70,229,0.3)] flex items-center justify-center uppercase tracking-widest text-xs"
+                                        >
+                                            {extensionLoading ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <DownloadCloud className="w-4 h-4 mr-2" />}
+                                            {extensionLoading ? 'Fetching Repository...' : 'Fetch Core Modules'}
+                                        </button>
+
+                                        <div className="pt-4 border-t border-white/5">
+                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">Installed Modules ({installedExtensions.length})</h4>
+                                            
+                                            {installedExtensions.length === 0 && (
+                                                <div className="text-center py-8 border border-dashed border-white/10 rounded-xl">
+                                                    <Puzzle className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
+                                                    <p className="text-xs font-medium text-zinc-500">No extensions installed.</p>
                                                 </div>
                                             )}
 
-                                            {(selectedEl.type === 'text' || selectedEl.type === 'waveform' || selectedEl.type === 'progress') && (
-                                                <div>
-                                                    <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Color</label>
-                                                    <div className="flex items-center space-x-2">
-                                                        <input type="color" value={selectedEl.color} onChange={e => updateElement(selectedEl.id, {color: e.target.value})} className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"/>
-                                                        <input type="text" value={selectedEl.color} onChange={e => updateElement(selectedEl.id, {color: e.target.value})} className="flex-1 bg-zinc-950 border border-white/10 rounded-xl p-2.5 text-sm text-white uppercase font-mono shadow-inner"/>
+                                            <div className="space-y-3">
+                                                {installedExtensions.map(ext => (
+                                                    <div key={ext.id} className="bg-zinc-950 border border-white/5 rounded-xl p-4 shadow-inner relative group">
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <h5 className="text-sm font-bold text-white">{ext.name} <span className="text-[9px] text-zinc-500 ml-1 font-mono bg-zinc-900 px-1 py-0.5 rounded">v{ext.version}</span></h5>
+                                                            <button 
+                                                                onClick={() => handleRemoveExtension(ext.id)}
+                                                                className="text-zinc-500 hover:text-rose-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                title="Remove Module"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                        <p className="text-xs text-zinc-400 leading-relaxed mb-3">{ext.description}</p>
+                                                        <div className="flex items-center text-[10px] text-zinc-600 font-mono">
+                                                            <span className="bg-zinc-900 px-2 py-1 rounded">By {ext.developer}</span>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                ))}
+                                            </div>
+
+                                            {blacklistedExtensions.length > 0 && (
+                                                <button 
+                                                    onClick={() => { clearExtensionBlacklist(); showToast("Blacklist cleared. You can now fetch all modules again.", "success"); }}
+                                                    className="text-xs text-zinc-500 hover:text-indigo-400 mt-6 text-center w-full transition-colors flex items-center justify-center font-medium"
+                                                >
+                                                    Restore {blacklistedExtensions.length} hidden module(s)
+                                                </button>
                                             )}
                                         </div>
-                                    )}
-                                </div>
-
-                                <div className="h-64 sm:h-72 bg-zinc-950 flex flex-col shrink-0">
-                                    <div className="sticky top-0 bg-zinc-950 z-10 p-3 px-4 border-b border-white/5 flex justify-between items-center">
-                                        <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 flex items-center">
-                                            <Layers className="w-4 h-4 mr-2" /> Layers <span className="ml-2 text-[10px] font-normal text-zinc-500 normal-case">(Top to Bottom)</span>
-                                        </h2>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                                         {layersUI.map((el) => (
-                                             <div 
-                                                 key={el.id}
-                                                 onClick={() => setSelectedId(el.id)}
-                                                 className={`flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer border transition-colors ${selectedId === el.id ? 'bg-indigo-600/20 border-indigo-500/50 text-white' : 'bg-zinc-900 border-white/5 text-zinc-400 hover:bg-zinc-800'}`}
-                                             >
-                                                 <div className="flex items-center space-x-3 truncate">
-                                                        <div className="text-zinc-500">
-                                                            {el.type === 'text' && <Type className="w-4 h-4" />}
-                                                            {el.type === 'image' && <ImageIcon className="w-4 h-4" />}
-                                                            {el.type === 'waveform' && <Activity className="w-4 h-4" />}
-                                                            {el.type === 'progress' && <Move className="w-4 h-4" />}
-                                                        </div>
-                                                        <span className="truncate font-medium text-xs">{el.text || el.id.split('-')[0].toUpperCase()}</span>
-                                                 </div>
-                                                 <div className="flex items-center space-x-1">
-                                                     <div className="flex flex-col mr-2">
-                                                         <button onClick={(e) => { e.stopPropagation(); moveLayer(el.originalIndex, 'up'); }} disabled={el.originalIndex === sceneRef.current.elements.length - 1} className="text-zinc-500 hover:text-white disabled:opacity-30"><ChevronUp className="w-3 h-3"/></button>
-                                                         <button onClick={(e) => { e.stopPropagation(); moveLayer(el.originalIndex, 'down'); }} disabled={el.originalIndex === 0} className="text-zinc-500 hover:text-white disabled:opacity-30"><ChevronDown className="w-3 h-3"/></button>
-                                                     </div>
-                                                     <button onClick={(e) => { e.stopPropagation(); removeElement(el.id); }} className="p-1.5 hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 rounded-md transition-colors">
-                                                         <Trash2 className="w-3.5 h-3.5" />
-                                                     </button>
-                                                 </div>
-                                             </div>
-                                         ))}
-                                         {layersUI.length === 0 && (
-                                             <div className="text-center p-4 text-xs text-zinc-600 font-medium mt-4">No layers in scene.</div>
-                                         )}
-                                    </div>
-                                </div>
+                                )}
                             </div>
                         </aside>
+                    </div>
 
-                        <div className="absolute lg:hidden bottom-0 inset-x-0 bg-zinc-950/90 backdrop-blur-xl border-t border-white/5 flex items-center justify-around p-2 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-                            <button onClick={() => setMobilePanel(p => p === 'left' ? 'none' : 'left')} className={`flex flex-col items-center p-2 px-4 rounded-xl transition-all ${mobilePanel === 'left' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
-                                <Plus className="w-5 h-5 mb-1" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">Add</span>
-                            </button>
-                            
-                            <button onClick={() => setMobilePanel(p => p === 'timeline' ? 'none' : 'timeline')} className={`flex flex-col items-center p-2 px-4 rounded-xl transition-all ${mobilePanel === 'timeline' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
-                                <Music className="w-5 h-5 mb-1" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">Trim</span>
-                            </button>
-                            
-                            <button onClick={() => setMobilePanel(p => p === 'right' ? 'none' : 'right')} className={`flex flex-col items-center p-2 px-4 rounded-xl transition-all ${mobilePanel === 'right' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
-                                <Settings className="w-5 h-5 mb-1" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">Edit</span>
-                            </button>
-                        </div>
-
+                    {/* True Fixed Bottom Navigation Footer for Mobile */}
+                    <div className="lg:hidden shrink-0 h-16 bg-zinc-950/95 backdrop-blur-xl border-t border-white/5 flex items-center justify-around z-50 px-2 relative">
+                        <button onClick={() => setMobilePanel(p => p === 'left' ? 'none' : 'left')} className={`flex flex-col items-center justify-center w-14 h-12 rounded-xl transition-all ${mobilePanel === 'left' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
+                            <ListMusic className="w-4 h-4 mb-0.5" />
+                            <span className="text-[8px] font-bold uppercase tracking-widest">Source</span>
+                        </button>
+                        <button onClick={() => setMobilePanel(p => p === 'timeline' ? 'none' : 'timeline')} className={`flex flex-col items-center justify-center w-14 h-12 rounded-xl transition-all ${mobilePanel === 'timeline' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
+                            <Music className="w-4 h-4 mb-0.5" />
+                            <span className="text-[8px] font-bold uppercase tracking-widest">Trim</span>
+                        </button>
+                        <button onClick={() => { setRightTab('properties'); setMobilePanel(p => p === 'right' ? 'none' : 'right'); }} className={`flex flex-col items-center justify-center w-14 h-12 rounded-xl transition-all ${mobilePanel === 'right' && rightTab === 'properties' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
+                            <Settings className="w-4 h-4 mb-0.5" />
+                            <span className="text-[8px] font-bold uppercase tracking-widest">Edit</span>
+                        </button>
+                        <button onClick={() => { setRightTab('modules'); setMobilePanel(p => p === 'modules' ? 'none' : 'modules'); }} className={`flex flex-col items-center justify-center w-14 h-12 rounded-xl transition-all ${mobilePanel === 'modules' ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-400 hover:text-white'}`}>
+                            <Puzzle className="w-4 h-4 mb-0.5" />
+                            <span className="text-[8px] font-bold uppercase tracking-widest">Mods</span>
+                        </button>
+                        <div className="w-px h-8 bg-white/10 mx-0.5"></div>
+                        <button onClick={() => setMobilePanel('none')} className={`flex flex-col items-center justify-center w-14 h-12 rounded-xl transition-all ${mobilePanel === 'none' ? 'text-white bg-white/10' : 'text-zinc-400 hover:text-white'}`}>
+                            <Monitor className="w-4 h-4 mb-0.5" />
+                            <span className="text-[8px] font-bold uppercase tracking-widest">Canvas</span>
+                        </button>
                     </div>
                 </div>
             );
