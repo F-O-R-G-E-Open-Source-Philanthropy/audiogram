@@ -2,12 +2,12 @@
  * @name AI Podcast Assistant
  * @description Generates timestamps, chapters, and viral soundbites from transcripts using Gemini AI.
  * @developer Audiogram Pro Team
- * @version 1.1.0
+ * @version 1.1.1
  */
 
 const EXT_ID = 'ai_podcast_assistant';
 const GEMINI_KEY_STORAGE = 'audiogram_ext_gemini_key';
-const MODEL_NAME = 'gemini-1.5-flash'; // Configured for the fastest tier
+const MODEL_NAME = 'gemini-1.5-flash'; // Used strictly for the actual analysis generation
 
 let modalElement = null;
 let fabElement = null;
@@ -162,11 +162,9 @@ const validateConnection = async () => {
     status.innerHTML = '';
 
     try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: "Reply with the exact word: OK" }] }] })
-        });
+        // Ultimate Model-Agnostic Validation Method (Zero Tokens Used)
+        // Queries the REST API for available models using the provided key
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
         
         if (!res.ok) throw new Error("Invalid Key");
         
