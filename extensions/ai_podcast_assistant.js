@@ -2,12 +2,12 @@
  * @name AI Podcast Assistant
  * @description Generates timestamps, chapters, and viral soundbites from transcripts using Gemini AI.
  * @developer Audiogram Pro Team
- * @version 1.1.1
+ * @version 1.1.2
  */
 
 const EXT_ID = 'ai_podcast_assistant';
 const GEMINI_KEY_STORAGE = 'audiogram_ext_gemini_key';
-const MODEL_NAME = 'gemini-1.5-flash'; // Used strictly for the actual analysis generation
+const GEMINI_MODEL_STORAGE = 'audiogram_ext_gemini_model';
 
 let modalElement = null;
 let fabElement = null;
@@ -45,7 +45,9 @@ const buildModalUI = () => {
                     <div class="flex-1 flex items-center space-x-3 relative">
                         <input type="password" id="ai-key-input" placeholder="Enter Gemini API Key..." value="${apiKey}" class="w-full max-w-sm bg-zinc-900 border border-white/10 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono shadow-inner transition-colors" />
                         <button id="ai-validate-btn" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] uppercase font-bold tracking-widest px-4 py-2.5 rounded-lg transition-colors flex items-center h-full">Verify</button>
-                        <div id="ai-key-status" class="flex items-center space-x-2 text-xs font-medium"></div>
+                        <div id="ai-key-status" class="flex items-center space-x-2 text-xs font-medium">
+                            ${localStorage.getItem(GEMINI_MODEL_STORAGE) ? `<span class="text-emerald-400 flex items-center">${icons.check} <span class="ml-1">${localStorage.getItem(GEMINI_MODEL_STORAGE)}</span></span>` : ''}
+                        </div>
                     </div>
                     <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-[10px] uppercase font-bold tracking-widest text-indigo-400 hover:text-indigo-300 transition-colors hidden sm:block">Get Free Key &rarr;</a>
                 </div>
@@ -134,7 +136,6 @@ const buildModalUI = () => {
 
 const switchTab = (tabId) => {
     currentTab = tabId;
-    // Update Tab Buttons UI
     document.querySelectorAll('.ai-tab-btn').forEach(btn => {
         if (btn.getAttribute('data-target') === tabId) {
             btn.className = "ai-tab-btn flex items-center justify-between p-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all bg-indigo-500/10 text-indigo-400 border border-indigo-500/30";
@@ -143,11 +144,32 @@ const switchTab = (tabId) => {
         }
     });
 
-    // Update Content Visibility
     document.querySelectorAll('.ai-tab-content').forEach(content => {
         content.classList.add('hidden');
     });
     document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+};
+
+// The Engine: Dynamically discovers the correct model string directly from Google
+const fetchBestModel = async (key) => {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+    const data = await res.json();
+    
+    if (!res.ok) throw new Error(data.error?.message || "Invalid API Key or connection error.");
+    
+    // Filter strictly for models that allow text generation
+    const validModels = data.models.filter(m => m.supportedGenerationMethods?.includes('generateContent'));
+    
+    // Auto-select priority: Fastest Flash -> Any Flash -> Pro -> Fallback
+    const bestModel = validModels.find(m => m.name.includes('flash') && !m.name.includes('8b')) 
+                   || validModels.find(m => m.name.includes('flash'))
+                   || validModels.find(m => m.name.includes('pro'))
+                   || validModels[0];
+                   
+    if (!bestModel) throw new Error("No text generation models authorized for this API key.");
+    
+    // Returns exact string required (e.g. "gemini-1.5-flash-latest")
+    return bestModel.name.replace('models/', '');
 };
 
 const validateConnection = async () => {
@@ -162,17 +184,16 @@ const validateConnection = async () => {
     status.innerHTML = '';
 
     try {
-        // Ultimate Model-Agnostic Validation Method (Zero Tokens Used)
-        // Queries the REST API for available models using the provided key
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-        
-        if (!res.ok) throw new Error("Invalid Key");
+        const detectedModel = await fetchBestModel(key);
         
         apiKey = key;
         localStorage.setItem(GEMINI_KEY_STORAGE, apiKey);
-        status.innerHTML = `<span class="text-emerald-400 flex items-center">${icons.check} <span class="ml-1">Connected</span></span>`;
+        localStorage.setItem(GEMINI_MODEL_STORAGE, detectedModel);
+        
+        status.innerHTML = `<span class="text-emerald-400 flex items-center">${icons.check} <span class="ml-1 leading-none tracking-tight pt-0.5">Connected (${detectedModel})</span></span>`;
     } catch (e) {
-        status.innerHTML = `<span class="text-rose-400 flex items-center">${icons.alert} <span class="ml-1">Invalid Key</span></span>`;
+        status.innerHTML = `<span class="text-rose-400 flex items-center">${icons.alert} <span class="ml-1 leading-none tracking-tight pt-0.5">Invalid Key</span></span>`;
+        showError(e.message);
     } finally {
         btn.innerHTML = 'Verify';
         btn.disabled = false;
@@ -208,41 +229,47 @@ const runFullAnalysis = async () => {
     isGenerating = true;
     analyzeBtn.disabled = true;
     analyzeBtn.innerHTML = `${icons.loader} <span class="ml-2">Processing Data...</span>`;
-    progressText.innerText = "Initiating concurrent AI calls...";
     
     chapDot.className = "w-2 h-2 rounded-full bg-indigo-500 animate-pulse";
     sbDot.className = "w-2 h-2 rounded-full bg-indigo-500 animate-pulse";
 
-    // Build the Prompts
-    const promptChapters = `Analyze the following podcast transcript and generate time-stamped chapters. Format strictly as:\nHH:MM:SS - HH:MM:SS Chapter Title\n\nOnly return the timecodes and titles. Do not use markdown code blocks.\n\nTranscript:\n${transcript}`;
-    
-    const promptSoundbites = `Analyze the following podcast transcript and identify the 3 most engaging, viral-worthy soundbites (30-45 seconds each). Format strictly as:\n\n1. Title: [Catchy Title]\nTime: HH:MM:SS - HH:MM:SS\nReason: [Why it's engaging]\nTranscript: [The exact quote]\n\nDo not use markdown code blocks.\n\nTranscript:\n${transcript}`;
-
-    const apiCall = async (prompt) => {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        });
-        
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error?.message || `API Error HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "No output generated.";
-    };
-
     try {
-        progressText.innerText = "Analyzing chapters and soundbites simultaneously...";
+        // Auto-heal: If user didn't verify, find the model string dynamically right now
+        let activeModelName = localStorage.getItem(GEMINI_MODEL_STORAGE);
+        if (!activeModelName) {
+            progressText.innerText = "Auto-detecting best available AI model...";
+            activeModelName = await fetchBestModel(apiKey);
+            localStorage.setItem(GEMINI_MODEL_STORAGE, activeModelName);
+        }
+
+        progressText.innerText = `Analyzing simultaneously via ${activeModelName}...`;
+
+        const promptChapters = `Analyze the following podcast transcript and generate time-stamped chapters. Format strictly as:\nHH:MM:SS - HH:MM:SS Chapter Title\n\nOnly return the timecodes and titles. Do not use markdown code blocks.\n\nTranscript:\n${transcript}`;
         
+        const promptSoundbites = `Analyze the following podcast transcript and identify the 3 most engaging, viral-worthy soundbites (30-45 seconds each). Format strictly as:\n\n1. Title: [Catchy Title]\nTime: HH:MM:SS - HH:MM:SS\nReason: [Why it's engaging]\nTranscript: [The exact quote]\n\nDo not use markdown code blocks.\n\nTranscript:\n${transcript}`;
+
+        const apiCall = async (prompt) => {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModelName}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error?.message || `API Error HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || "No output generated.";
+        };
+
         // Run both heavy operations concurrently
         const [chaptersResult, soundbitesResult] = await Promise.all([
             apiCall(promptChapters),
             apiCall(promptSoundbites)
         ]);
 
-        // Targeted DOM updates (preserves user state seamlessly)
+        // Targeted DOM updates
         document.getElementById('ai-output-chapters').value = chaptersResult;
         document.getElementById('ai-output-soundbites').value = soundbitesResult;
         
@@ -250,7 +277,6 @@ const runFullAnalysis = async () => {
         sbDot.className = "w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(52,211,153,0.8)]";
         progressText.innerText = "Analysis Complete.";
         
-        // Auto-switch to chapters to show results
         switchTab('chapters');
 
     } catch (e) {
@@ -279,6 +305,9 @@ const attachEventBindings = () => {
     document.getElementById('ai-key-input').onchange = (e) => {
         apiKey = e.target.value.trim();
         localStorage.setItem(GEMINI_KEY_STORAGE, apiKey);
+        // Clear cached model on key change
+        localStorage.removeItem(GEMINI_MODEL_STORAGE);
+        document.getElementById('ai-key-status').innerHTML = '';
     };
 
     document.getElementById('ai-validate-btn').onclick = validateConnection;
@@ -316,7 +345,6 @@ function init(api) {
         fabElement.onclick = () => {
             if (!modalElement.innerHTML) buildModalUI();
             modalElement.style.display = 'block';
-            // Slight delay to trigger opacity transition beautifully
             setTimeout(() => {
                 modalElement.classList.remove('opacity-0', 'pointer-events-none');
                 modalElement.classList.add('opacity-100');
