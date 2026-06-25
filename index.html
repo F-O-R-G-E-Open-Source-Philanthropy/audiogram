@@ -80,6 +80,7 @@
                 waveforms: {},
                 tools: {},
                 _exts: {},
+                state: {}, // Exposes current episode data to extensions securely
                 register: (id, init, teardown) => {
                     window.AudiogramAPI._exts[id] = teardown;
                     if(init) init(window.AudiogramAPI);
@@ -229,7 +230,6 @@
             const [dbInstance, setDbInstance] = useState(null);
             
             useEffect(() => {
-                // V4 Upgrade for Extension Blacklisting
                 const request = indexedDB.open('AudiogramProDB', 4);
                 request.onupgradeneeded = (e) => {
                     const db = e.target.result;
@@ -395,6 +395,18 @@
             const [trimEnd, setTrimEnd] = useState(30);
             const [ignoreTrim, setIgnoreTrim] = useState(false); 
             const [episodeSoundbites, setEpisodeSoundbites] = useState([]);
+
+            // Expose active state to external Extensions dynamically
+            useEffect(() => {
+                window.AudiogramAPI.state = {
+                    selectedEpisode,
+                    feedData,
+                    currentTime,
+                    duration,
+                    trimStart,
+                    trimEnd
+                };
+            }, [selectedEpisode, feedData, currentTime, duration, trimStart, trimEnd]);
 
             const canvasRef = useRef(null);
             const sceneRef = useRef({
